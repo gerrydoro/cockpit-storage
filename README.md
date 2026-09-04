@@ -31,6 +31,53 @@ or build RPMs with the `srpm` / `rpm` targets (`make rpm` also needs the
 RPM build tools). Use `NODE_ENV=production make` to minify and compress the
 bundle as in release builds.
 
+### Nix
+
+The project ships a Nix flake that builds the plugin for NixOS or any system
+using Nix. Supported systems are `x86_64-linux` and `aarch64-linux`.
+
+Build and run directly from the flake without installing anything else:
+
+```sh
+nix run .#                    # build and open in Cockpit (if running)
+```
+
+Build the package into the Nix store:
+
+```sh
+nix build .#cockpit-storage   # result appears as ./result
+```
+
+The built output lands in `result/share/cockpit/storage/`. To install it
+system-wide on NixOS, add the flake as an input and enable Cockpit:
+
+```nix
+# flake.nix
+{
+  inputs.cockpit-storage.url = "github:gerrydoro/cockpit-storage";
+
+  outputs = { self, nixpkgs, cockpit-storage, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        { services.cockpit.enable = true; }
+        ({ pkgs, ... }: {
+          nixpkgs.overlays = [ cockpit-storage.overlays.default ];
+          environment.systemPackages = [ pkgs.cockpit-storage ];
+        })
+      ];
+    };
+  };
+}
+```
+
+Or build and install manually from the repo:
+
+```sh
+nix build .#cockpit-storage
+cp -r result/share/cockpit/storage /usr/local/share/cockpit/
+```
+
 ### Development
 
 To run the plugin straight out of the git tree, symlink the built output where
