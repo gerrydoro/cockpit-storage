@@ -36,6 +36,10 @@ bundle as in release builds.
 The project ships a Nix flake that builds the plugin for NixOS or any system
 using Nix. Supported systems are `x86_64-linux` and `aarch64-linux`.
 
+The flake uses `importNpmLock` to derive the dependency set directly from
+`package-lock.json`, so there is no `npmDepsHash` to keep in sync — updating
+dependencies (by hand or via dependabot) requires no further Nix changes.
+
 Build and run directly from the flake without installing anything else:
 
 ```sh

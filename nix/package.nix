@@ -1,6 +1,7 @@
 {
   lib,
   buildNpmPackage,
+  importNpmLock,
   cockpit,
   gettext,
   writeShellScriptBin,
@@ -12,7 +13,9 @@ buildNpmPackage {
 
   src = ./..;
 
-  npmDepsHash = "sha256-DHl4+hVV9DK8aroBT6abligpth0KprRi5PG6rk3RBmc=";
+  npmDeps = importNpmLock { npmRoot = ./..; };
+
+  npmConfigHook = importNpmLock.npmConfigHook;
 
   npmPackFlags = [ "--ignore-scripts" ];
 
