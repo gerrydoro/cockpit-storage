@@ -1,0 +1,15 @@
+pkgname=cockpit-storage
+pkgver=VERSION
+pkgrel=1
+pkgdesc='Disk and directory usage analyzer for Cockpit'
+arch=('x86_64')
+url='https://github.com/gerrydoro/cockpit-storage'
+license=(LGPL)
+source=("SOURCE")
+sha256sums=('SKIP')
+
+package() {
+  depends=(cockpit)
+  cd $pkgname
+  make DESTDIR="$pkgdir" install PREFIX=/usr
+}

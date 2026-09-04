@@ -1,0 +1,80 @@
+# storage German translations
+msgid ""
+msgstr ""
+"Project-Id-Version: storage 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-03 00:00+0000\n"
+"PO-Revision-Date: 2026-09-03 00:00+0000\n"
+"Last-Translator: opencode (Big Pickle) <noreply@opencode.ai>\n"
+"Language-Team: German <LL@li.org>\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1\n"
+
+#: src/index.html:20
+msgid "Cockpit Storage"
+msgstr "Cockpit-Speicher"
+
+#: org.cockpit_project.storage.metainfo.xml:6
+msgid "Disk and directory usage analyzer"
+msgstr "Analyse der Datenträger- und Verzeichnisnutzung"
+
+#: src/manifest.json:0 org.cockpit_project.storage.metainfo.xml:5
+msgid "Storage"
+msgstr "Speicher"
+
+#: src/app.tsx:124
+msgid "Disk Usage"
+msgstr "Datenträgerbelegung"
+
+#: src/app.tsx:136
+msgid "Back"
+msgstr "Zurück"
+
+#: src/app.tsx:146
+msgid "Select a filesystem to analyze its disk usage."
+msgstr "Wählen Sie einen Datenträger aus, um dessen Speicherbelegung zu analysieren."
+
+#: src/app.tsx:162
+msgid "Donut view"
+msgstr "Ringdiagramm-Ansicht"
+
+#: src/app.tsx:163
+msgid "Toggle treemap / donut view"
+msgstr "Zwischen Kachel- und Ringdiagramm-Ansicht umschalten"
+
+#: src/app.tsx:172
+msgid "Scan issue"
+msgstr "Problem beim Durchsuchen"
+
+#: src/app.tsx:200
+msgid "$0 item"
+msgid_plural "$0 items"
+msgstr[0] "$0 Element"
+msgstr[1] "$0 Elemente"
+
+#: src/app.tsx:211
+msgid "Name"
+msgstr "Name"
+
+#: src/app.tsx:212
+msgid "Size"
+msgstr "Größe"
+
+#: src/app.tsx:213
+msgid "% of total"
+msgstr "% der Gesamtsumme"
+
+#: src/FsPicker.tsx:33
+msgid "Could not enumerate filesystems"
+msgstr "Datenträger konnten nicht ermittelt werden"
+
+#: src/FsPicker.tsx:39
+msgid "No mounted filesystems to analyze."
+msgstr "Keine eingehängten Datenträger zum Analysieren vorhanden."
+
+#: src/Treemap.tsx:84
+msgid "total"
+msgstr "gesamt"

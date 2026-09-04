@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="addon">
+  <id>org.cockpit_project.storage</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>Storage</name>
+  <summary>Disk and directory usage analyzer</summary>
+  <description>
+    <p>
+      Analyze real directory-level disk usage across mounted filesystems,
+      with treemap and ring chart visualizations and drill-down navigation.
+    </p>
+  </description>
+  <extends>org.cockpit_project.cockpit</extends>
+  <launchable type="cockpit-manifest">storage</launchable>
+  <url type="homepage">https://github.com/gerrydoro/cockpit-storage</url>
+  <url type="bugtracker">https://github.com/gerrydoro/cockpit-storage/issues</url>
+  <update_contact>cockpit-devel_AT_lists.fedorahosted.org</update_contact>
+  <developer id="org.cockpit-project">
+    <name>Cockpit Project</name>
+  </developer>
+</component>

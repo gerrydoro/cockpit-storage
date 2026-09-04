@@ -1,0 +1,22 @@
+name: nix-build
+on:
+  push:
+  pull_request:
+jobs:
+  nix-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Enable magic Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+
+      - name: Build the cockpit-storage package
+        run: nix build .#cockpit-storage
