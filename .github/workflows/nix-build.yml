@@ -16,7 +16,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Enable magic Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v14
+        uses: DeterminateSystems/magic-nix-cache-action@v15
 
       - name: Build the cockpit-storage package
         run: nix build .#cockpit-storage
