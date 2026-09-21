@@ -26,11 +26,9 @@ interface Props {
     onSelect?: (name: string) => void;
 }
 
-const PALETTE = [
-    '#F4A261', '#E76F51', '#2A9D8F', '#E9C46A', '#D4A0C8', '#F4845F',
-    '#A8DADC', '#FFB4A2', '#B5838D', '#95D5B2', '#CDB4DB', '#FFD6A5',
-    '#FCA311', '#F08080',
-];
+/* Colors are CSS custom properties defined in app.scss, so the dark theme
+   swaps in darker shades while the labels keep using theme-aware colors. */
+const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
 
 export const Treemap = ({ data, total, width = 1000, height = 560, selected, onSelect }: Props) => {
     /* order the layout by size (descending), mirroring squarify's sort */
@@ -64,7 +62,7 @@ key={datum.name}
 x={r.x} y={r.y} width={r.w} height={r.h}
                               fill={fill}
                               opacity={isSel ? 1 : 0.85}
-                              stroke={isSel ? '#151515' : '#ffffff'}
+                              stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
                               strokeWidth={isSel ? 2 : 1}
                         />
                         {r.w > 60 && r.h > 30 && (
@@ -79,7 +77,7 @@ x={r.x + 5} y={r.y + 16}
                 );
             })}
             <text
-x={width / 2} y={height + 20} fontSize="13" fill="#6a6e73"
+x={width / 2} y={height + 20} fontSize="13" fill="var(--ct-color-subtle-copy)"
                   textAnchor="middle"
             >{formatSize(total)} {_("total")}
             </text>

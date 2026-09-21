@@ -41,30 +41,19 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                 : (
                     <>
                         <Treemap data={data} total={total} onSelect={onSelect} />
-                        <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                        <div className="fs-picker">
                             {fileSystems.map(fs => (
                                 <button
                                     key={fs.mount}
                                     data-testid="filesystem"
                                     onClick={() => onSelect(fs.mount)}
-                                    style={{
-                                        background: '#f2f2f2',
-                                        border: '1px solid #d2d2d2',
-                                        borderRadius: 8,
-                                        padding: '8px 16px',
-                                        cursor: 'pointer',
-                                        fontSize: 13,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 4,
-                                        alignItems: 'flex-start',
-                                    }}
+                                    className="fs-picker-button"
                                 >
-                                    <span style={{ fontWeight: 600 }}>{fs.mount}</span>
-                                    <span style={{ color: '#6a6e73', fontSize: 12 }}>
+                                    <span className="fs-picker-name">{fs.mount}</span>
+                                    <span className="fs-picker-detail">
                                         {fs.device} — {fs.fstype}
                                     </span>
-                                    <span style={{ color: '#6a6e73', fontSize: 12 }}>
+                                    <span className="fs-picker-detail">
                                         {formatSize(fs.used * 1024)} used / {formatSize(fs.blocks * 1024)} total ({fs.capacity}%)
                                     </span>
                                 </button>

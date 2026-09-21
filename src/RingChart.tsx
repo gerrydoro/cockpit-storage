@@ -19,11 +19,9 @@ interface Props {
     thickness?: number;
 }
 
-const PALETTE = [
-    '#F4A261', '#E76F51', '#2A9D8F', '#E9C46A', '#D4A0C8', '#F4845F',
-    '#A8DADC', '#FFB4A2', '#B5838D', '#95D5B2', '#CDB4DB', '#FFD6A5',
-    '#FCA311', '#F08080',
-];
+/* Colors are CSS custom properties defined in app.scss, so the dark theme
+   swaps in darker shades while the labels keep using theme-aware colors. */
+const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
 
 function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
     const large = end - start > Math.PI ? 1 : 0;
@@ -51,7 +49,7 @@ viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', maxWidth: size, height: 
             >
                 {total <= 0
                     ? (
-                        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#d2d2d2" strokeWidth={thickness} />
+                        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pf-t--global--border--color--default)" strokeWidth={thickness} />
                     )
                     : usable.map((d, i) => {
                         const start = angle;
@@ -69,11 +67,11 @@ key={d.name}
                     })}
                 <text
 x={cx} y={cy - (centerSub ? 2 : 6)} textAnchor="middle" fontSize="18"
-                      fontWeight="bold" fill="#151515"
+                      fontWeight="bold" fill="var(--ct-color-text)"
                 >{centerLabel}
                 </text>
                 {centerSub && (
-                    <text x={cx} y={cy + 16} textAnchor="middle" fontSize="12" fill="#6a6e73">{centerSub}</text>
+                    <text x={cx} y={cy + 16} textAnchor="middle" fontSize="12" fill="var(--ct-color-subtle-copy)">{centerSub}</text>
                 )}
             </svg>
             {total > 0 && (

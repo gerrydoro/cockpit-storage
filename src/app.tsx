@@ -126,7 +126,8 @@ export const Application = () => {
                         <button
 onClick={goBack} style={{
     background: 'none',
-    border: '1px solid #d2d2d2',
+    border: '1px solid var(--pf-t--global--border--color--default)',
+    color: 'var(--ct-color-text)',
     borderRadius: 6,
     padding: '4px 12px',
     cursor: 'pointer',
@@ -142,7 +143,7 @@ onClick={goBack} style={{
 
                     {!fsLoading && !current && (
                         <>
-                            <p style={{ marginBottom: 16, color: '#6a6e73' }}>
+                            <p style={{ marginBottom: 16, color: 'var(--ct-color-subtle-copy)' }}>
                                 {_("Select a filesystem to analyze its disk usage.")}
                             </p>
                             <FsPicker
@@ -207,7 +208,7 @@ fileSystems={fileSystems}
                             {!dirLoading && entries.length > 0 && (
                                 <table style={{ width: '100%', marginTop: 16, borderCollapse: 'collapse', fontSize: 13 }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '1px solid #d2d2d2' }}>
+                                        <tr style={{ borderBottom: '1px solid var(--pf-t--global--border--color--default)' }}>
                                             <th style={{ textAlign: 'left', padding: '4px 8px' }}>{_("Name")}</th>
                                             <th style={{ textAlign: 'right', padding: '4px 8px' }}>{_("Size")}</th>
                                             <th style={{ textAlign: 'right', padding: '4px 8px' }}>{_("% of total")}</th>
@@ -217,7 +218,7 @@ fileSystems={fileSystems}
                                         {entries.slice(0, 30).map(e => (
                                             <tr
 key={e.name}
-                                                style={{ borderBottom: '1px solid #f2f2f2', cursor: e.isDir ? 'pointer' : 'default' }}
+                                                style={{ borderBottom: '1px solid var(--pf-t--global--border--color--100)', cursor: e.isDir ? 'pointer' : 'default' }}
                                                 onClick={e.isDir ? () => enterChild(e.name) : undefined}
                                             >
                                                 <td style={{ padding: '4px 8px' }}>

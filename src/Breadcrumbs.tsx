@@ -23,17 +23,17 @@ export const Breadcrumbs = ({ segments, onNavigate }: Props) => (
                 const isLast = i === segments.length - 1;
                 return (
                     <li key={seg.path} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {i > 0 && <span aria-hidden="true" style={{ color: '#6a6e73' }}>/</span>}
+                        {i > 0 && <span aria-hidden="true" style={{ color: 'var(--ct-color-subtle-copy)' }}>/</span>}
                         {isLast
                             ? (
-                                <span aria-current="page" style={{ fontWeight: 600, color: '#151515' }}>
+                                <span aria-current="page" style={{ fontWeight: 600, color: 'var(--ct-color-text)' }}>
                                     {seg.label}
                                 </span>
                             )
                             : (
                                 <a
 href="#" onClick={(e) => { e.preventDefault(); onNavigate(seg.path) }}
-                               style={{ color: '#0066cc', textDecoration: 'none' }}
+                               style={{ color: 'var(--ct-color-link)', textDecoration: 'none' }}
                                 >
                                     {seg.label}
                                 </a>

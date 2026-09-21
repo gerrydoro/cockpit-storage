@@ -1,6 +1,78 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 @use "page.scss";
 
+/* Chart palette used by the treemap and ring chart. Exposed as CSS custom
+   properties so the Cockpit dark theme (.pf-v6-theme-dark) can swap in darker
+   shades; the labels on top keep using the theme-aware text colors. */
+:root {
+    --storage-chart-0: #F4A261;
+    --storage-chart-1: #E76F51;
+    --storage-chart-2: #2A9D8F;
+    --storage-chart-3: #E9C46A;
+    --storage-chart-4: #D4A0C8;
+    --storage-chart-5: #F4845F;
+    --storage-chart-6: #A8DADC;
+    --storage-chart-7: #FFB4A2;
+    --storage-chart-8: #B5838D;
+    --storage-chart-9: #95D5B2;
+    --storage-chart-10: #CDB4DB;
+    --storage-chart-11: #FFD6A5;
+    --storage-chart-12: #FCA311;
+    --storage-chart-13: #F08080;
+}
+
+.pf-v6-theme-dark {
+    --storage-chart-0: #b3743d;
+    --storage-chart-1: #a84d3a;
+    --storage-chart-2: #1e7469;
+    --storage-chart-3: #a67f1b;
+    --storage-chart-4: #96648d;
+    --storage-chart-5: #b05f42;
+    --storage-chart-6: #5e96a3;
+    --storage-chart-7: #c48a7a;
+    --storage-chart-8: #8a636c;
+    --storage-chart-9: #6fa78b;
+    --storage-chart-10: #9a85ad;
+    --storage-chart-11: #9c7a4c;
+    --storage-chart-12: #b47309;
+    --storage-chart-13: #b05656;
+}
+
+.fs-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 16px;
+
+    .fs-picker-button {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-start;
+        padding: 8px 16px;
+        border: 1px solid var(--pf-t--global--border--color--default);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        background: var(--pf-t--global--background--color--secondary--default);
+        color: var(--ct-color-text);
+
+        &:hover {
+            background: var(--pf-t--global--background--color--control--default);
+        }
+    }
+
+    .fs-picker-name {
+        font-weight: 600;
+    }
+
+    .fs-picker-detail {
+        font-size: 12px;
+        font-weight: normal;
+        color: var(--ct-color-subtle-copy);
+    }
+}
+
 p {
     font-weight: bold;
 }
