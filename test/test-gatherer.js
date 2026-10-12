@@ -11,7 +11,8 @@
 
 /* global QUnit */
 
-import { parseMounts, parseDf, filterFileSystems, parseDu } from '../src/gatherer.js';
+import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage } from '../src/gatherer.js';
+import { squarify } from '../src/layout.js';
 import { formatSize } from '../src/format.js';
 
 /* ---- parseMounts ---- */
@@ -38,6 +39,20 @@ QUnit.test('ignores blank lines and malformed lines', assert => {
     /* missing the trailing dump/pass fields -> not a valid /proc/mounts record */
     const mounts = parseMounts('\nproc /proc proc rw\n\n');
     assert.equal(mounts.size, 0, 'malformed line with missing fields is dropped');
+});
+
+QUnit.test('decodes all octal escapes, not just spaces', assert => {
+    const text = [
+        '/dev/disk\\040by-id /mnt/tab\\011name ext4 rw,relatime 0 0',
+        '/dev/sdb1 /mnt/back\\134slash ext4 rw,relatime 0 0',
+        '',
+    ].join('\n');
+
+    const mounts = parseMounts(text);
+    assert.deepEqual(mounts.get('/mnt/tab\tname'), { device: '/dev/disk by-id', fstype: 'ext4' },
+                     '\\011 decoded to a tab and \\040 in the device decoded');
+    assert.deepEqual(mounts.get('/mnt/back\\slash'), { device: '/dev/sdb1', fstype: 'ext4' },
+                     '\\134 decoded to a backslash');
 });
 
 /* ---- parseDf ---- */
@@ -109,6 +124,22 @@ QUnit.test('root filesystem is sorted first', assert => {
     assert.equal(result[1].mount, '/home');
 });
 
+QUnit.test('keeps the shallowest mount by path depth, not string length', assert => {
+    /* /a/b/c is deeper but shorter in characters than /verylongname; the old
+       string-length heuristic would have picked the deeper mount */
+    const df = [
+        { device: '/dev/sdc', blocks: 100, used: 50, avail: 50, capacity: 50, mount: '/a/b/c', fstype: '' },
+        { device: '/dev/sdc', blocks: 100, used: 50, avail: 50, capacity: 50, mount: '/verylongname', fstype: '' },
+    ];
+    const m = new Map();
+    m.set('/a/b/c', { device: '/dev/sdc', fstype: 'ext4' });
+    m.set('/verylongname', { device: '/dev/sdc', fstype: 'ext4' });
+
+    const result = filterFileSystems(df, m);
+    assert.equal(result.length, 1, 'bind mounts of one device collapse to one entry');
+    assert.equal(result[0].mount, '/verylongname', 'the shallower path wins even though it is longer');
+});
+
 /* ---- parseDu ---- */
 
 QUnit.module('parseDu');
@@ -134,6 +165,80 @@ QUnit.test('skips empty records and non-numeric sizes', assert => {
     const entries = parseDu(text);
     assert.equal(entries.length, 1, 'empty and malformed records dropped');
     assert.deepEqual(entries[0], { path: './x', size: 1234 });
+});
+
+/* ---- buildDirUsage ---- */
+
+QUnit.module('buildDirUsage');
+
+const DU = [
+    '4096\t.',
+    '2048\t./docs',
+    '1024\t./readme.txt',
+    '256\t./z-file',
+    '',
+].join('\n');
+
+QUnit.test('builds children, marks directories and reads the total', assert => {
+    const usage = buildDirUsage('/', DU, 'docs\n', true);
+
+    assert.equal(usage.path, '/', 'path is preserved');
+    assert.equal(usage.size, 4096, 'directory total comes from the `.` record');
+    assert.equal(usage.complete, true);
+    assert.deepEqual(usage.entries.map(e => e.name), ['docs', 'readme.txt', 'z-file'],
+                     'children are sorted by size descending');
+
+    const docs = usage.entries.find(e => e.name === 'docs');
+    assert.equal(docs.isDir, true, 'subdirectory from find is flagged as a directory');
+    assert.equal(docs.path, '/docs', 'child path is joined onto the parent');
+    assert.equal(docs.size, 2048);
+
+    const readme = usage.entries.find(e => e.name === 'readme.txt');
+    assert.equal(readme.isDir, false, 'plain file is not a directory');
+    assert.equal(readme.path, '/readme.txt');
+});
+
+QUnit.test('joins nested paths without doubling separators', assert => {
+    const usage = buildDirUsage('/home/user', DU, 'docs\n', true);
+    const docs = usage.entries.find(e => e.name === 'docs');
+    assert.equal(docs.path, '/home/user/docs');
+});
+
+QUnit.test('falls back to summing children when du omits the total', assert => {
+    const du = ['2048\t./docs', '1024\t./readme.txt', ''].join('\n');
+    const usage = buildDirUsage('/', du, 'docs\n', true);
+    assert.equal(usage.size, 3072, 'total is the sum of the children');
+});
+
+QUnit.test('propagates the complete flag from the command runners', assert => {
+    const usage = buildDirUsage('/', DU, 'docs\n', false);
+    assert.equal(usage.complete, false, 'a failed command is surfaced to the UI');
+});
+
+/* ---- squarify ---- */
+
+QUnit.module('squarify');
+
+QUnit.test('lays rectangles that fill the area in size order', assert => {
+    const rects = squarify([100, 50, 25, 25], 0, 0, 100, 100);
+
+    assert.equal(rects.length, 4, 'one rectangle per positive value');
+    assert.deepEqual(rects.map(r => r.value), [100, 50, 25, 25], 'values stay in descending order');
+
+    const area = rects.reduce((sum, r) => sum + r.w * r.h, 0);
+    assert.ok(Math.abs(area - 100 * 100) < 1e-6, 'rectangles cover the whole area');
+
+    for (const r of rects) {
+        assert.ok(r.x >= 0 && r.y >= 0, 'rectangles stay inside the origin');
+        assert.ok(r.x + r.w <= 100.000001 && r.y + r.h <= 100.000001, 'rectangles stay inside the bounds');
+        assert.ok(r.w > 0 && r.h > 0, 'rectangles have a positive size');
+    }
+});
+
+QUnit.test('drops non-positive values and handles empty input', assert => {
+    assert.equal(squarify([], 0, 0, 100, 100).length, 0, 'empty input produces no rectangles');
+    assert.equal(squarify([0, 0], 0, 0, 100, 100).length, 0, 'zero-sized values are ignored');
+    assert.equal(squarify([10], 0, 0, 0, 100).length, 0, 'a zero-width area produces nothing');
 });
 
 /* ---- formatSize ---- */

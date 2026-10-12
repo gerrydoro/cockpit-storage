@@ -17,13 +17,24 @@ class TestApplication(testlib.MachineCase):
 
         self.login_and_go("/storage")
         # verify the storage page opens with the filesystem picker
-        b.wait_text(".pf-v6-c-card__title", "Disk Usage")
+        b.wait_text("[data-testid=storage-title]", "Disk Usage")
         b.wait_visible("[data-testid=filesystem]")
 
         # pick the root filesystem and verify the drill-down treemap appears
         b.click("[data-testid=filesystem]")
         b.wait_visible("[data-testid=treemap]")
-        b.wait_visible("[aria-label=breadcrumb]")
+        b.wait_visible(".pf-v6-c-breadcrumb")
+        b.wait_visible("[data-testid=usage-table]")
+
+        # toggle to the donut view and back to the treemap
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=donut]")
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=treemap]")
+
+        # rescanning the current level keeps it usable
+        b.click("[data-testid=rescan]")
+        b.wait_visible("[data-testid=treemap]")
 
         # navigate back to the filesystem picker
         b.click("button:contains(Back)")

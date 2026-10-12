@@ -187,7 +187,7 @@ check: prepare-check
 	test/common/run-tests ${RUN_TESTS_OPTIONS}
 
 # bundle and run the QUnit unit tests for the pure helpers in Node
-test/unit-tests.js: test/build-tests.js test/test-gatherer.js src/gatherer.ts src/format.ts test/mock-cockpit.js
+test/unit-tests.js: test/build-tests.js test/test-gatherer.js src/gatherer.ts src/layout.ts src/format.ts test/mock-cockpit.js
 	node test/build-tests.js
 
 check-unit: test/unit-tests.js
