@@ -9,7 +9,10 @@ import cockpit from 'cockpit';
 import type { FileSystem } from './gatherer.js';
 import { Treemap } from './Treemap.jsx';
 import { formatSize } from './format.js';
-import { Alert } from "@patternfly/react-core/dist/esm/components/Alert/index.js";
+import { Alert } from '@patternfly/react-core/dist/esm/components/Alert/index.js';
+import { Button } from '@patternfly/react-core/dist/esm/components/Button/index.js';
+import { EmptyState } from '@patternfly/react-core/dist/esm/components/EmptyState/index.js';
+import { FolderOpenIcon } from '@patternfly/react-icons/dist/esm/icons/folder-open-icon';
 
 const _ = cockpit.gettext;
 
@@ -36,15 +39,21 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
             )}
             {fileSystems.length === 0
                 ? (
-                    <p>{_("No mounted filesystems to analyze.")}</p>
+                    <EmptyState
+                        variant="sm"
+                        icon={FolderOpenIcon}
+                        titleText={_("No mounted filesystems to analyze.")}
+                        headingLevel="h4"
+                    />
                 )
                 : (
                     <>
                         <Treemap data={data} total={total} onSelect={onSelect} />
                         <div className="fs-picker">
                             {fileSystems.map(fs => (
-                                <button
+                                <Button
                                     key={fs.mount}
+                                    variant="secondary"
                                     data-testid="filesystem"
                                     onClick={() => onSelect(fs.mount)}
                                     className="fs-picker-button"
@@ -56,7 +65,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                                     <span className="fs-picker-detail">
                                         {formatSize(fs.used * 1024)} used / {formatSize(fs.blocks * 1024)} total ({fs.capacity}%)
                                     </span>
-                                </button>
+                                </Button>
                             ))}
                         </div>
                     </>

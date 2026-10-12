@@ -45,20 +45,14 @@
     margin-top: 16px;
 
     .fs-picker-button {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        align-items: flex-start;
         padding: 8px 16px;
-        border: 1px solid var(--pf-t--global--border--color--default);
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 13px;
-        background: var(--pf-t--global--background--color--secondary--default);
-        color: var(--ct-color-text);
 
-        &:hover {
-            background: var(--pf-t--global--background--color--control--default);
+        .pf-v6-c-button__text {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-start;
+            font-size: 13px;
         }
     }
 
@@ -69,10 +63,5 @@
     .fs-picker-detail {
         font-size: 12px;
         font-weight: normal;
-        color: var(--ct-color-subtle-copy);
     }
-}
-
-p {
-    font-weight: bold;
 }

@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Breadcrumb, BreadcrumbItem } from '@patternfly/react-core/dist/esm/components/Breadcrumb/index.js';
 
 interface BreadcrumbSegment {
     label: string;
@@ -17,30 +18,28 @@ interface Props {
 }
 
 export const Breadcrumbs = ({ segments, onNavigate }: Props) => (
-    <nav aria-label="breadcrumb" style={{ marginBottom: 16 }}>
-        <ol style={{ display: 'flex', flexWrap: 'wrap', listStyle: 'none', padding: 0, margin: 0, gap: 4 }}>
-            {segments.map((seg, i) => {
-                const isLast = i === segments.length - 1;
-                return (
-                    <li key={seg.path} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {i > 0 && <span aria-hidden="true" style={{ color: 'var(--ct-color-subtle-copy)' }}>/</span>}
-                        {isLast
-                            ? (
-                                <span aria-current="page" style={{ fontWeight: 600, color: 'var(--ct-color-text)' }}>
-                                    {seg.label}
-                                </span>
-                            )
-                            : (
-                                <a
-href="#" onClick={(e) => { e.preventDefault(); onNavigate(seg.path) }}
-                               style={{ color: 'var(--ct-color-link)', textDecoration: 'none' }}
-                                >
-                                    {seg.label}
-                                </a>
-                            )}
-                    </li>
-                );
-            })}
-        </ol>
-    </nav>
+    <Breadcrumb>
+        {segments.map((seg, i) => {
+            const isLast = i === segments.length - 1;
+            return (
+                <BreadcrumbItem
+                    key={seg.path}
+                    render={({ className, ariaCurrent }) => isLast
+                        ? <span className={className} aria-current={ariaCurrent}>{seg.label}</span>
+                        : (
+                            <a
+                                className={className}
+                                href="#"
+                                onClick={e => {
+                                    e.preventDefault();
+                                    onNavigate(seg.path);
+                                }}
+                            >
+                                {seg.label}
+                            </a>
+                        )}
+                />
+            );
+        })}
+    </Breadcrumb>
 );
