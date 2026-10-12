@@ -73,6 +73,11 @@ export interface DirUsage {
 
 /* ---- pure parsing helpers (unit-testable) ---- */
 
+/* /proc/mounts octal-escapes space, tab, newline and backslash (`\040`, ...). */
+function unescapeMount(field: string): string {
+    return field.replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+}
+
 export function parseMounts(text: string): Map<string, { device: string; fstype: string }> {
     const result = new Map<string, { device: string; fstype: string }>();
     for (const line of text.split('\n')) {
@@ -81,8 +86,8 @@ export function parseMounts(text: string): Map<string, { device: string; fstype:
         /* device mount fstype options dump pass -- spaces are escaped */
         const m = line.match(/^(\S+)\s+(.+?)\s+(\S+)\s+\S+\s+\d+\s+\d+$/);
         if (m) {
-            const mount = m[2].replace(/\\040/g, ' ');
-            result.set(mount, { device: m[1], fstype: m[3] });
+            const mount = unescapeMount(m[2]);
+            result.set(mount, { device: unescapeMount(m[1]), fstype: m[3] });
         }
     }
     return result;
@@ -123,8 +128,8 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
     }
 
     /* Bind mounts reuse the same device at several paths (e.g. / and /nix/store
-     * both on /dev/nvme0n1p2). For each distinct device keep only the shallowest
-     * mount, which is the filesystem's primary mount point. */
+     * both on /dev/nvme0n1p2). For each distinct device keep only the primary
+     * (shallowest) mount, which is the filesystem's canonical mount point. */
     const byDevice = new Map<string, FileSystem[]>();
     for (const fs of candidates) {
         let list = byDevice.get(fs.device);
@@ -135,9 +140,12 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
         list.push(fs);
     }
 
+    /* Path depth, not string length: `/srv/data` (9 chars) is shallower than
+     * `/media/pics` (11 chars) even though the shorter string wins on length. */
+    const depth = (mount: string) => mount.split('/').filter(Boolean).length;
     const result: FileSystem[] = [];
     for (const group of byDevice.values()) {
-        group.sort((a, b) => a.mount.length - b.mount.length);
+        group.sort((a, b) => depth(a.mount) - depth(b.mount) || a.mount.length - b.mount.length);
         result.push(group[0]);
     }
     result.sort((a, b) => (a.mount === '/' ? -1 : b.mount === '/' ? 1 : a.mount.localeCompare(b.mount)));
@@ -200,6 +208,43 @@ export async function listFileSystems(): Promise<FileSystem[]> {
 }
 
 /*
+ * Build the direct children of `path` from `du -a -B1 -d 1` output plus the
+ * set of subdirectory names reported by `find`. Split out from
+ * `scanDirectory` so the path/total/isDir logic can be unit-tested without a
+ * cockpit bridge.
+ *
+ * `complete` is false when either command errored (e.g. unreadable
+ * subdirectories), which the UI surfaces as a warning.
+ */
+export function buildDirUsage(path: string, duText: string, subdirText: string, complete: boolean): DirUsage {
+    const entries = parseDu(duText);
+    const subdirs = new Set(subdirText.split('\n').filter(Boolean));
+
+    const children: UsageEntry[] = [];
+    let total = 0;
+    for (const entry of entries) {
+        /* `du` emits the directory total first, as a bare `.` record. */
+        if (entry.path === '.') {
+            total = entry.size;
+            continue;
+        }
+        const name = entry.path.replace(/^\.\//, '');
+        if (name === '' || name.startsWith('../'))
+            continue;
+        children.push({
+            name,
+            path: path === '/' ? '/' + name : path + '/' + name,
+            size: entry.size,
+            isDir: subdirs.has(name),
+        });
+    }
+
+    children.sort((a, b) => b.size - a.size);
+    /* Fall back to summing the children if `du` omitted the `.` total. */
+    return { path, size: total || children.reduce((s, c) => s + c.size, 0), entries: children, complete };
+}
+
+/*
  * Scan the immediate children of `path` with `du`. Returns each child's
  * total disk usage; unreadable subtrees produce `complete: false`.
  */
@@ -209,28 +254,7 @@ export async function scanDirectory(path: string): Promise<DirUsage> {
         collectSpawn(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
     ]);
 
-    const entries = parseDu(duResult.output);
-    const subdirs = new Set(findResult.output.split('\n').filter(Boolean));
-
-    const children: UsageEntry[] = [];
-    let total = 0;
-    for (const entry of entries) {
-        const name = entry.path.replace(/^\.\/?/, '');
-        if (name === '' || name.startsWith('../'))
-            continue;
-        if (name === '.')
-            total = entry.size;
-        else
-            children.push({
-                name,
-                path: path === '/' ? '/' + name : path + '/' + name,
-                size: entry.size,
-                isDir: subdirs.has(name),
-            });
-    }
-
-    children.sort((a, b) => b.size - a.size);
-    return { path, size: total || children.reduce((s, c) => s + c.size, 0), entries: children, complete: duResult.ok };
+    return buildDirUsage(path, duResult.output, findResult.output, duResult.ok && findResult.ok);
 }
 
 export class UsageCache {
