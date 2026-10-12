@@ -14,8 +14,9 @@ across all mounted filesystems and drill down to find what is using your disk.
   per level.
 - **Per-directory details** — each child's disk usage, sorted by size, with a
   usage table and item counts.
-- **On-demand scanning with caching** — `du`-based (null-delimited for safe
-  parsing), cached per session so revisiting a subtree is instant.
+- **On-demand scanning with caching** — `du`-based (newline-delimited, which
+  Cockpit's text channel accepts), cached per session so revisiting a subtree is
+  instant; a **Rescan** button drops the cache and refreshes the current level.
 - **i18n** — user-facing strings are translatable (see `po/`).
 
 ## Installation
