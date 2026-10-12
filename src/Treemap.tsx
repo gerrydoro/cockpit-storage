@@ -38,38 +38,54 @@ export const Treemap = ({ data, total, width = 1000, height = 560, selected, onS
 
     const rects = squarify(sorted.map(d => d.size), 0, 0, width, height);
 
+    /* map each datum to its color slot once, instead of scanning `data` per
+       rectangle (which is O(n^2)) */
+    const colorSlots = new Map(data.map((d, i) => [d.name, i]));
+
     return (
         <svg
-viewBox={`0 0 ${width} ${height}`}
-             style={{ width: '100%', height: 'auto', display: 'block' }}
-             data-testid="treemap"
+            viewBox={`0 0 ${width} ${height}`}
+            style={{ width: '100%', height: 'auto', display: 'block' }}
+            data-testid="treemap"
         >
             {rects.map((r, i) => {
                 const datum = sorted[i];
                 if (!datum)
                     return null;
-                const idx = data.indexOf(datum);
-                const fill = PALETTE[Math.abs(idx) % PALETTE.length];
+                const fill = PALETTE[(colorSlots.get(datum.name) ?? 0) % PALETTE.length];
                 const isSel = selected === datum.name;
+                const clickable = Boolean(onSelect && datum.isDir);
+                const activate = () => onSelect?.(datum.name);
                 return (
                     <g
-key={datum.name}
-                       onClick={onSelect && datum.isDir ? () => onSelect(datum.name) : undefined}
-                       style={onSelect && datum.isDir ? { cursor: 'pointer' } : undefined}
-                       data-testid="treemap-cell"
+                        key={datum.name}
+                        role={clickable ? 'button' : undefined}
+                        tabIndex={clickable ? 0 : undefined}
+                        aria-label={`${datum.name}, ${formatSize(datum.size)}`}
+                        onClick={clickable ? activate : undefined}
+                        onKeyDown={clickable
+                            ? e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    activate();
+                                }
+                            }
+                            : undefined}
+                        style={clickable ? { cursor: 'pointer' } : undefined}
+                        data-testid="treemap-cell"
                     >
                         <rect
-x={r.x} y={r.y} width={r.w} height={r.h}
-                              fill={fill}
-                              opacity={isSel ? 1 : 0.85}
-                              stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
-                              strokeWidth={isSel ? 2 : 1}
+                            x={r.x} y={r.y} width={r.w} height={r.h}
+                            fill={fill}
+                            opacity={isSel ? 1 : 0.85}
+                            stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
+                            strokeWidth={isSel ? 2 : 1}
                         />
                         {r.w > 60 && r.h > 30 && (
                             <text
-x={r.x + 5} y={r.y + 16}
-                                  fontSize="14" fill="#ffffff"
-                                  style={{ pointerEvents: 'none' }}
+                                x={r.x + 5} y={r.y + 16}
+                                fontSize="14" fill="#ffffff"
+                                style={{ pointerEvents: 'none' }}
                             >{datum.name}
                             </text>
                         )}
@@ -77,8 +93,8 @@ x={r.x + 5} y={r.y + 16}
                 );
             })}
             <text
-x={width / 2} y={height + 20} fontSize="13" fill="var(--ct-color-subtle-copy)"
-                  textAnchor="middle"
+                x={width / 2} y={height + 20} fontSize="13" fill="var(--ct-color-subtle-copy)"
+                textAnchor="middle"
             >{formatSize(total)} {_("total")}
             </text>
         </svg>

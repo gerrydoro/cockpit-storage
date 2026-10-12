@@ -23,6 +23,10 @@ interface Props {
    swaps in darker shades while the labels keep using theme-aware colors. */
 const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
 
+/* Two points closer than this are treated as identical; an SVG arc whose
+   endpoints coincide is dropped entirely, so a 100% slice needs a <circle>. */
+const FULL_CIRCLE_EPSILON = 1e-6;
+
 function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
     const large = end - start > Math.PI ? 1 : 0;
     const x1 = cx + r * Math.cos(start);
@@ -38,14 +42,20 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
     const cx = size / 2;
     const cy = size / 2;
     const r = size / 2 - thickness / 2;
+    const ariaLabel = total > 0
+        ? `${centerLabel}${centerSub ? `, ${centerSub}` : ''}`
+        : centerLabel;
 
     let angle = -Math.PI / 2;
 
     return (
         <div style={{ textAlign: 'center' }}>
             <svg
-viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', maxWidth: size, height: 'auto' }}
-                 data-testid="donut"
+                viewBox={`0 0 ${size} ${size}`}
+                style={{ width: '100%', maxWidth: size, height: 'auto' }}
+                role="img"
+                aria-label={ariaLabel}
+                data-testid="donut"
             >
                 {total <= 0
                     ? (
@@ -55,19 +65,32 @@ viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', maxWidth: size, height: 
                         const start = angle;
                         const sweep = (d.value / total) * Math.PI * 2;
                         angle += sweep;
+                        /* A single slice sweeps the full circle; an arc with
+                           identical endpoints renders nothing, so draw a ring. */
+                        if (sweep >= Math.PI * 2 - FULL_CIRCLE_EPSILON) {
+                            return (
+                                <circle
+                                    key={d.name}
+                                    cx={cx} cy={cy} r={r}
+                                    fill="none"
+                                    stroke={PALETTE[i % PALETTE.length]}
+                                    strokeWidth={thickness}
+                                />
+                            );
+                        }
                         return (
                             <path
-key={d.name}
-                              d={arcPath(cx, cy, r, start, angle)}
-                              fill="none"
-                              stroke={PALETTE[i % PALETTE.length]}
-                              strokeWidth={thickness}
+                                key={d.name}
+                                d={arcPath(cx, cy, r, start, angle)}
+                                fill="none"
+                                stroke={PALETTE[i % PALETTE.length]}
+                                strokeWidth={thickness}
                             />
                         );
                     })}
                 <text
-x={cx} y={cy - (centerSub ? 2 : 6)} textAnchor="middle" fontSize="18"
-                      fontWeight="bold" fill="var(--ct-color-text)"
+                    x={cx} y={cy - (centerSub ? 2 : 6)} textAnchor="middle" fontSize="18"
+                    fontWeight="bold" fill="var(--ct-color-text)"
                 >{centerLabel}
                 </text>
                 {centerSub && (
@@ -78,12 +101,14 @@ x={cx} y={cy - (centerSub ? 2 : 6)} textAnchor="middle" fontSize="18"
                 <div style={{ marginTop: 16 }}>
                     {usable.map((d, i) => (
                         <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
-                            <span style={{
-                                width: 12,
-                                height: 12,
-                                background: PALETTE[i % PALETTE.length],
-                                display: 'inline-block'
-                            }}
+                            <span
+                                aria-hidden="true"
+                                style={{
+                                    width: 12,
+                                    height: 12,
+                                    background: PALETTE[i % PALETTE.length],
+                                    display: 'inline-block'
+                                }}
                             />
                             <span>{d.name}</span>
                         </div>
