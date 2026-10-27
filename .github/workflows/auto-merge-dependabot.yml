@@ -1,0 +1,120 @@
+# Auto-merge Dependabot and GitHub Actions PRs into main after all checks pass.
+
+name: Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: read
+
+    steps:
+      # Determine if this is a PR from Dependabot or GitHub Actions
+      - name: Check PR author
+        id: check-author
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_OWNER=$(curl -s "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUMBER}" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['head']['user']['login'])")
+          
+          if [[ "$PR_OWNER" == "dependabot[bot]" || "$PR_OWNER" == "github-actions[bot]" ]]; then
+            echo "::set-output name=allowed::true"
+          else
+            echo "::set-output name=allowed::false"
+            echo "PR from '$PR_OWNER' — skipping non-dependabot/GH-actions PRs"
+          fi
+
+      # Wait for all status checks to pass (only for allowed PRs)
+      - name: Wait for checks to pass
+        id: wait-checks
+        if: steps.check-author.outputs.allowed == 'true'
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          GITHUB_SHA=${{ github.sha }}
+          
+          echo "Waiting for all checks to pass on PR #${PR_NUMBER}..."
+          
+          MAX_RETRIES=60  # ~15 minutes at 30s intervals
+          RETRIES=0
+          
+          while [ $RETRIES -lt $MAX_RETRIES ]; do
+            RETRIES=$((RETRIES + 1))
+            
+            # Get all check runs for this commit
+            CHECKS=$(curl -s "https://api.github.com/repos/${{ github.repository }}/check_runs" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" | \
+              python3 -c "import sys,json; print(json.load(sys.stdin))")
+            
+            # Check if all checks concluded successfully (skip dependabot's own check)
+            ALL_PASSED=$(echo "$CHECKS" | \
+              python3 -c "
+import sys, json
+checks = json.load(sys.stdin)
+all_passed = True
+for check in checks:
+    if not check.get('conclusion'):
+        continue  # still running, wait for next iteration
+    if check['context'] == 'dependabot':
+        continue  # skip dependabot's own status check
+    if check['conclusion'] != 'success':
+        all_passed = False
+        break
+print('true' if all_passed else 'false')
+            ")
+            
+            if [ "$ALL_PASSED" == "true" ]; then
+              echo "::set-output name=success::true"
+              echo ""
+              echo "✓ All checks passed!"
+              exit 0
+            fi
+            
+            echo ""
+            echo "Check $RETRIES/$MAX_RETRIES — still waiting..."
+            
+            sleep 30
+          done
+          
+          echo "::set-output name=success::false"
+          echo "Timed out waiting for checks to pass"
+
+      # Squash merge the PR (only if both conditions are met)
+      - name: Squash merge PR
+        id: do-merge
+        if: steps.check-author.outputs.allowed == 'true' && steps.wait-checks.outputs.success == 'true'
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          
+          echo ""
+          echo "Squash merging PR #${PR_NUMBER} into main..."
+          
+          MERGE_RESPONSE=$(curl -s -X POST \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${PR_NUMBER}/merge" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{
+              "merge_method": "squash",
+              "commit_title": "Merge PR #${PR_NUMBER}",
+              "commit_message": ""
+            }' \
+            2>/dev/null)
+          
+          # Handle common scenarios
+          MESSAGE=$(echo "$MERGE_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('message', 'unknown'))")
+          
+          if echo "$MESSAGE" | grep -q "Already merged"; then
+            echo ""
+            echo "PR was already merged — skipping."
+          elif echo "$MESSAGE" | grep -q "merge conflicts"; then
+            echo ""
+            echo "⚠ PR has merge conflicts — manual intervention required."
+          else
+            echo ""
+            echo "✓ PR #${PR_NUMBER} merged successfully!"
+          fi
