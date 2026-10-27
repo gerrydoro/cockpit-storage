@@ -36,7 +36,6 @@ jobs:
         if: steps.check-author.outputs.allowed == 'true'
         run: |
           PR_NUMBER=${{ github.event.pull_request.number }}
-          GITHUB_SHA=${{ github.sha }}
           
           echo "Waiting for all checks to pass on PR #${PR_NUMBER}..."
           
