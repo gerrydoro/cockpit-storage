@@ -1,7 +1,7 @@
 name: Auto-merge
 on:
   pull_request:
-    types: [opened, reopened, labeled]
+    types: [opened, reopened, synchronize, labeled]
 
 permissions:
   pull-requests: write
@@ -9,14 +9,16 @@ permissions:
 
 jobs:
   enable-auto-merge:
+    # Dependabot and GitHub Actions PRs, plus cockpit-lib-update PRs. The latter
+    # are opened with the repository owner's token, so they are attributed to the
+    # owner rather than to a bot; match them by their branch prefix.
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' ||
-      github.event.pull_request.user.login == 'github-actions[bot]'
+      github.event.pull_request.user.login == 'github-actions[bot]' ||
+      (github.event.pull_request.user.login == github.repository_owner &&
+      startsWith(github.event.pull_request.head.ref, 'cockpit-lib-'))
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
       - name: Enable auto-merge (squash)
         run: gh pr merge --squash --auto "$PR_URL"
         env:
