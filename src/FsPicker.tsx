@@ -7,6 +7,7 @@
 import React from 'react';
 import cockpit from 'cockpit';
 import type { FileSystem } from './gatherer.js';
+import type { ChartDatum } from './chart.js';
 import { Treemap } from './Treemap.jsx';
 import { formatSize } from './format.js';
 import { Alert } from '@patternfly/react-core/dist/esm/components/Alert/index.js';
@@ -23,12 +24,13 @@ interface Props {
 }
 
 export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
-    const data = fileSystems.map(fs => ({
+    /* `navigable` is the chart vocabulary for "there is somewhere to go";
+       picking a filesystem always is. */
+    const data: ChartDatum[] = fileSystems.map(fs => ({
         name: fs.mount,
-        size: fs.used * 1024,
-        isDir: true,
+        size: fs.used,
+        navigable: true,
     }));
-    const total = fileSystems.reduce((s, fs) => s + fs.used * 1024, 0);
 
     return (
         <>
@@ -48,7 +50,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                 )
                 : (
                     <>
-                        <Treemap data={data} total={total} onSelect={onSelect} />
+                        <Treemap data={data} onSelect={onSelect} />
                         <div className="fs-picker">
                             {fileSystems.map(fs => (
                                 <Button
@@ -63,7 +65,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                                         {fs.device} — {fs.fstype}
                                     </span>
                                     <span className="fs-picker-detail">
-                                        {formatSize(fs.used * 1024)} used / {formatSize(fs.blocks * 1024)} total ({fs.capacity}%)
+                                        {formatSize(fs.used)} used / {formatSize(fs.blocks)} total ({fs.capacity}%)
                                     </span>
                                 </Button>
                             ))}

@@ -4,8 +4,29 @@
  * Copyright (C) 2026 Red Hat, Inc.
  */
 
+import type { ChartDatum } from './chart.js';
+
+/*
+ * Treemap layout (Bruls, Huizing, van Wijk).
+ *
+ * `place` hands back the very data it was given, with coordinates attached.
+ * The old interface returned rectangles carrying only a value, which left
+ * matching a rectangle to the datum it belongs to in the caller's hands — the
+ * caller had to repeat this module's own filter and sort, and keep them
+ * identical, or every rectangle silently picked up the wrong label. The join
+ * now happens in the same module that performs the sort, and is tested there.
+ */
+
 export interface TreemapRect {
     value: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+/* A datum with the rectangle it was placed in. */
+export interface PlacedDatum extends ChartDatum {
     x: number;
     y: number;
     w: number;
@@ -20,7 +41,7 @@ interface Space {
 }
 
 /*
- * Squarified treemap layout (Bruls, Huizing, van Wijk).
+ * Squarified treemap layout.
  * Places rectangles with low aspect ratio, sorted by size descending.
  */
 export function squarify(
@@ -109,4 +130,27 @@ export function squarify(
     }
 
     return rects;
+}
+
+/*
+ * Place `data` inside the box, largest first, and give each datum back its
+ * rectangle. Zero-sized data is dropped rather than drawn, in both the sort and
+ * the layout, so the two cannot disagree about what was placed where.
+ */
+export function place(
+    data: ChartDatum[],
+    x: number,
+    y: number,
+    w: number,
+    h: number
+): PlacedDatum[] {
+    const sorted = [...data].filter(d => d.size > 0).sort((a, b) => b.size - a.size);
+    const rects = squarify(sorted.map(d => d.size), x, y, w, h);
+
+    const placed: PlacedDatum[] = [];
+    for (let i = 0; i < rects.length; i++) {
+        const rect = rects[i];
+        placed.push({ ...sorted[i], x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+    }
+    return placed;
 }

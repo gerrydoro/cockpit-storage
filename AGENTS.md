@@ -41,14 +41,37 @@ Commands:
 
 ## Source layout
 
-- `src/index.tsx` — entry; `src/app.tsx` — page state/history/navigation
+- `src/index.tsx` — entry; `src/app.tsx` — page state; `src/trail.ts` — the
+  drill-down trail (mount + the chain of directories walked into), React-free
 - `src/gatherer.ts` — pure parsers (`parseMounts`, `parseDf`,
-  `filterFileSystems`, `parseDu`) + `cockpit.spawn`/`cockpit.file` runners +
-  `UsageCache` (per-session `du` cache)
+  `filterFileSystems`, `parseDu`, `buildDirUsage`) + the `CommandRunner` seam +
+  `listFileSystems` / `scanDirectory` / `UsageCache` (per-session cache)
+- `src/paths.ts` — `joinPath` / `baseName` / `pathDepth` (the one home of the
+  root-separator rule) and `Bytes`, with `kibToBytes` / `bytes`. All sizes are
+  Bytes: `df -Pk` block counts are converted at the parse boundary, so a size
+  never needs multiplying by 1024 at a call site, and passing a block count to
+  `formatSize` is a type error. `test/type-assertions.ts` pins that in the
+  build.
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
+- `src/Breadcrumbs.tsx` — takes the **Trail** and renders it; crumb labelling is
+  the trail's job, not the page's.
+- `src/chart.ts` — the chart vocabulary: `ChartDatum`, the palette, the
+  colour-slot rule, and turning a level's entries into chart data. Both charts
+  read from it, so a level keeps its colours and its slice cap across views.
+  `navigable` is what a chart tests to decide clickability, not `isDir`.
+- `src/layout.ts` — `place` lays a treemap and hands each datum back with its
+  rectangle, so the caller never repeats the layout's filter and sort or joins
+  rectangles to data by position. `squarify` is the geometry underneath it.
+- `src/gatherer.ts` gathers through a `CommandRunner`, never through
+  `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
+  bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole
+  gathering layer runs under Node. New gathering code must not call `cockpit.*`
+  itself.
 - Pure parsing functions live in `.ts` files so they can be unit-tested in Node;
   keep parsers free of `cockpit.*` calls. Formatting is 4-space indent
   (eslint overrides the standard config's default).
+- `GLOSSARY.md` names the domain and seam vocabulary; use those words in code
+  and comments.
 
 ## Tests
 
