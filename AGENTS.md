@@ -53,7 +53,9 @@ Commands:
   colour-slot rule, and turning a level's entries into chart data. Both charts
   read from it, so a level keeps its colours and its slice cap across views.
   `navigable` is what a chart tests to decide clickability, not `isDir`.
-- `src/gatherer.ts` gathers through a `CommandRunner`, never through
+- `src/layout.ts` — `place` lays a treemap and hands each datum back with its
+  rectangle, so the caller never repeats the layout's filter and sort or joins
+  rectangles to data by position. `squarify` is the geometry underneath it.
   `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
   bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole
   gathering layer runs under Node. New gathering code must not call `cockpit.*`

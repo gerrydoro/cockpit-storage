@@ -15,13 +15,13 @@
 import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
          listFileSystems, scanDirectory, UsageCache } from '../src/gatherer.js';
 import { inMemoryRunner } from './mock-cockpit.js';
-import { squarify } from '../src/layout.js';
 import { formatSize } from '../src/format.js';
 
-/* Registers the navigation rules and the chart vocabulary; QUnit collects
-   modules at import time. */
+/* Registers the navigation rules, the chart vocabulary and the layout; QUnit
+   collects modules at import time. */
 import './test-trail.js';
 import './test-chart.js';
+import './test-layout.js';
 
 /* ---- parseMounts ---- */
 
@@ -221,32 +221,6 @@ QUnit.test('falls back to summing children when du omits the total', assert => {
 QUnit.test('propagates the complete flag from the command runners', assert => {
     const usage = buildDirUsage('/', DU, 'docs\n', false);
     assert.equal(usage.complete, false, 'a failed command is surfaced to the UI');
-});
-
-/* ---- squarify ---- */
-
-QUnit.module('squarify');
-
-QUnit.test('lays rectangles that fill the area in size order', assert => {
-    const rects = squarify([100, 50, 25, 25], 0, 0, 100, 100);
-
-    assert.equal(rects.length, 4, 'one rectangle per positive value');
-    assert.deepEqual(rects.map(r => r.value), [100, 50, 25, 25], 'values stay in descending order');
-
-    const area = rects.reduce((sum, r) => sum + r.w * r.h, 0);
-    assert.ok(Math.abs(area - 100 * 100) < 1e-6, 'rectangles cover the whole area');
-
-    for (const r of rects) {
-        assert.ok(r.x >= 0 && r.y >= 0, 'rectangles stay inside the origin');
-        assert.ok(r.x + r.w <= 100.000001 && r.y + r.h <= 100.000001, 'rectangles stay inside the bounds');
-        assert.ok(r.w > 0 && r.h > 0, 'rectangles have a positive size');
-    }
-});
-
-QUnit.test('drops non-positive values and handles empty input', assert => {
-    assert.equal(squarify([], 0, 0, 100, 100).length, 0, 'empty input produces no rectangles');
-    assert.equal(squarify([0, 0], 0, 0, 100, 100).length, 0, 'zero-sized values are ignored');
-    assert.equal(squarify([10], 0, 0, 0, 100).length, 0, 'a zero-width area produces nothing');
 });
 
 /* ---- formatSize ---- */

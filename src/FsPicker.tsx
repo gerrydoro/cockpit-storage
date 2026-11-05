@@ -31,7 +31,6 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
         size: fs.used * 1024,
         navigable: true,
     }));
-    const total = fileSystems.reduce((s, fs) => s + fs.used * 1024, 0);
 
     return (
         <>
@@ -51,7 +50,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                 )
                 : (
                     <>
-                        <Treemap data={data} total={total} onSelect={onSelect} />
+                        <Treemap data={data} onSelect={onSelect} />
                         <div className="fs-picker">
                             {fileSystems.map(fs => (
                                 <Button

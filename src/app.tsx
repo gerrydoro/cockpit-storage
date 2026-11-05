@@ -204,7 +204,6 @@ export const Application = () => {
                                     ? (
                                         <Treemap
                                             data={chartData}
-                                            total={totalSize}
                                             selected={selected}
                                             onSelect={(name) => {
                                                 const entry = entries.find(e => e.name === name);
