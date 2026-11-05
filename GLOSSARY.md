@@ -47,6 +47,25 @@ introduce a new concept, add it here.
   every cached **Scan**; it lives in React state so replacing it is the event
   both loading effects depend on.
 
+## Chart vocabulary
+
+**ChartDatum**
+: What a chart draws: a `name`, a `size`, and `navigable` — whether the user
+  can descend into it by clicking. Defined once in `src/chart.ts`; the treemap
+  and the ring chart both take it, so there is one datum shape rather than one
+  per chart with a different field name.
+
+**Colour slot**
+: A datum's colour is its position in the chart data as given. Both charts
+  resolve it through `colorSlots`, so a directory is the same colour whichever
+  view you look at it with. The slot count lives in `PALETTE_SLOTS`; the colours
+  themselves are CSS custom properties so the dark theme can swap them.
+
+**Synthetic slice**
+: The aggregate of everything past the slice cap, drawn as one block named
+  "Other". It keeps the size it is standing in for, and is never navigable
+  because there is no single directory to descend into.
+
 ## Seams
 
 **CommandRunner**

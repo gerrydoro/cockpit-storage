@@ -8,17 +8,12 @@ import React from 'react';
 import cockpit from 'cockpit';
 import { squarify } from './layout.js';
 import { formatSize } from './format.js';
+import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 
 const _ = cockpit.gettext;
 
-export interface TreemapDatum {
-    name: string;
-    size: number;
-    isDir?: boolean;
-}
-
 interface Props {
-    data: TreemapDatum[];
+    data: ChartDatum[];
     total: number;
     width?: number;
     height?: number;
@@ -26,9 +21,8 @@ interface Props {
     onSelect?: (name: string) => void;
 }
 
-/* Colors are CSS custom properties defined in app.scss, so the dark theme
-   swaps in darker shades while the labels keep using theme-aware colors. */
-const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
+/* Colour slots are decided by chart.js, so the treemap and the ring chart
+   agree on which directory is which colour. */
 
 export const Treemap = ({ data, total, width = 1000, height = 560, selected, onSelect }: Props) => {
     /* order the layout by size (descending), mirroring squarify's sort */
@@ -38,9 +32,7 @@ export const Treemap = ({ data, total, width = 1000, height = 560, selected, onS
 
     const rects = squarify(sorted.map(d => d.size), 0, 0, width, height);
 
-    /* map each datum to its color slot once, instead of scanning `data` per
-       rectangle (which is O(n^2)) */
-    const colorSlots = new Map(data.map((d, i) => [d.name, i]));
+    const slots = colorSlots(data);
 
     return (
         <svg
@@ -52,9 +44,9 @@ export const Treemap = ({ data, total, width = 1000, height = 560, selected, onS
                 const datum = sorted[i];
                 if (!datum)
                     return null;
-                const fill = PALETTE[(colorSlots.get(datum.name) ?? 0) % PALETTE.length];
+                const fill = paletteColor(slots.get(datum.name) ?? 0);
                 const isSel = selected === datum.name;
-                const clickable = Boolean(onSelect && datum.isDir);
+                const clickable = Boolean(onSelect && datum.navigable);
                 const activate = () => onSelect?.(datum.name);
                 return (
                     <g

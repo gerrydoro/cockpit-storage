@@ -18,8 +18,10 @@ import { inMemoryRunner } from './mock-cockpit.js';
 import { squarify } from '../src/layout.js';
 import { formatSize } from '../src/format.js';
 
-/* Registers the navigation rules; QUnit collects modules at import time. */
+/* Registers the navigation rules and the chart vocabulary; QUnit collects
+   modules at import time. */
 import './test-trail.js';
+import './test-chart.js';
 
 /* ---- parseMounts ---- */
 

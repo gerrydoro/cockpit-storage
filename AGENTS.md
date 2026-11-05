@@ -49,6 +49,10 @@ Commands:
 - `src/paths.ts` — `joinPath` / `baseName` / `pathDepth`, shared by the trail
   and the gatherer; the one home of the root-separator rule
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
+- `src/chart.ts` — the chart vocabulary: `ChartDatum`, the palette, the
+  colour-slot rule, and turning a level's entries into chart data. Both charts
+  read from it, so a level keeps its colours and its slice cap across views.
+  `navigable` is what a chart tests to decide clickability, not `isDir`.
 - `src/gatherer.ts` gathers through a `CommandRunner`, never through
   `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
   bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole

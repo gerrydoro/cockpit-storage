@@ -31,6 +31,7 @@ import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
 import { FsPicker } from './FsPicker.jsx';
 import { formatSize } from './format.js';
+import { capped, levelData } from './chart.js';
 
 const _ = cockpit.gettext;
 
@@ -126,14 +127,9 @@ export const Application = () => {
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
     const totalSize = dirUsage?.size ?? 0;
 
-    /* aggregate everything past the slice cap into an "Other" slice so no
-       usage is hidden in the donut */
-    const donutData = entries.length > DONUT_SLICES
-        ? [
-            ...entries.slice(0, DONUT_SLICES).map(e => ({ name: e.name, value: e.size })),
-            { name: _("Other"), value: entries.slice(DONUT_SLICES).reduce((s, e) => s + e.size, 0) },
-        ]
-        : entries.map(e => ({ name: e.name, value: e.size }));
+    /* Both charts draw the same prepared list, so one level is one set of
+       colours and one aggregate whichever view you are in. */
+    const chartData = capped(levelData(entries), DONUT_SLICES, _("Other"));
 
     const itemCount = cockpit.ngettext("$0 item", "$0 items", entries.length).replace('$0', String(entries.length));
     const percent = (size: number) => (totalSize > 0 ? `${(size / totalSize * 100).toFixed(1)}%` : '0%');
@@ -207,11 +203,7 @@ export const Application = () => {
                                 viewMode === 'treemap'
                                     ? (
                                         <Treemap
-                                            data={entries.map(e => ({
-                                                name: e.name,
-                                                size: e.size,
-                                                isDir: e.isDir,
-                                            }))}
+                                            data={chartData}
                                             total={totalSize}
                                             selected={selected}
                                             onSelect={(name) => {
@@ -226,7 +218,7 @@ export const Application = () => {
                                     )
                                     : (
                                         <RingChart
-                                            data={donutData}
+                                            data={chartData}
                                             centerLabel={formatSize(totalSize)}
                                             centerSub={itemCount}
                                         />
