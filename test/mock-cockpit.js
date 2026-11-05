@@ -53,14 +53,14 @@ export function inMemoryRunner({ mounts = '', df = '', dirs = {} } = {}) {
         async run(args, options) {
             const dir = options?.directory ?? '';
             switch (args[0]) {
-                case 'df':
-                    return { output: df, ok: true };
-                case 'du':
-                    return commandFor(dir, 'du');
-                case 'find':
-                    return commandFor(dir, 'find');
-                default:
-                    throw new Error(`inMemoryRunner: no canned output for ${args.join(' ')}`);
+            case 'df':
+                return { output: df, ok: true };
+            case 'du':
+                return commandFor(dir, 'du');
+            case 'find':
+                return commandFor(dir, 'find');
+            default:
+                throw new Error(`inMemoryRunner: no canned output for ${args.join(' ')}`);
             }
         },
 

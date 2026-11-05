@@ -68,7 +68,9 @@ QUnit.test('opening a child descends without doubling the separator', assert => 
 });
 
 QUnit.test('descending keeps every level on the crumb trail', assert => {
-    const trail = Trail.open('/').openChild('home').openChild('user').openChild('docs');
+    const trail = Trail.open('/').openChild('home')
+            .openChild('user')
+            .openChild('docs');
 
     assert.deepEqual(trail.current(), { mount: '/', path: '/home/user/docs' });
     assert.deepEqual(trail.segments().map(s => s.path), ['/', '/home', '/home/user', '/home/user/docs']);
@@ -91,7 +93,8 @@ QUnit.test('commands on the picker trail leave it alone', assert => {
 });
 
 QUnit.test('back ascends one level at a time', assert => {
-    let trail = Trail.open('/mnt/backups').openChild('docs').openChild('images');
+    let trail = Trail.open('/mnt/backups').openChild('docs')
+            .openChild('images');
 
     trail = trail.back();
     assert.equal(trail.current()?.path, '/mnt/backups/docs', 'up one directory');
@@ -107,7 +110,9 @@ QUnit.test('back ascends one level at a time', assert => {
 });
 
 QUnit.test('a crumb click moves to that ancestor, dropping nothing before it', assert => {
-    const trail = Trail.open('/').openChild('home').openChild('user').openChild('docs');
+    const trail = Trail.open('/').openChild('home')
+            .openChild('user')
+            .openChild('docs');
     const paths = trail.segments().map(s => s.path);
 
     const jumped = trail.goTo(paths[1]);

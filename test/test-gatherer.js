@@ -12,8 +12,10 @@
 
 /* global QUnit */
 
-import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
-         listFileSystems, scanDirectory, UsageCache } from '../src/gatherer.js';
+import {
+    parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
+    listFileSystems, scanDirectory, UsageCache
+} from '../src/gatherer.js';
 import { inMemoryRunner } from './mock-cockpit.js';
 import { formatSize } from '../src/format.js';
 
