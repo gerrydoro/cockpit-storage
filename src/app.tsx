@@ -23,7 +23,7 @@ import '@patternfly/react-styles/css/components/Table/table.css';
 import cockpit from 'cockpit';
 
 import type { FileSystem, DirUsage, UsageEntry } from './gatherer.js';
-import { UsageCache } from './gatherer.js';
+import { UsageCache, cockpitRunner } from './gatherer.js';
 import { Treemap } from './Treemap.jsx';
 import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
@@ -43,7 +43,7 @@ interface HistoryEntry {
 }
 
 export const Application = () => {
-    const cache = useRef(new UsageCache());
+    const cache = useRef(new UsageCache(cockpitRunner()));
     const [fileSystems, setFileSystems] = useState<FileSystem[]>([]);
     const [fsLoading, setFsLoading] = useState(true);
     const [fsError, setFsError] = useState<string | null>(null);

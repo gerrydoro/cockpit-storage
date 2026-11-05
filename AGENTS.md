@@ -43,12 +43,19 @@ Commands:
 
 - `src/index.tsx` — entry; `src/app.tsx` — page state/history/navigation
 - `src/gatherer.ts` — pure parsers (`parseMounts`, `parseDf`,
-  `filterFileSystems`, `parseDu`) + `cockpit.spawn`/`cockpit.file` runners +
-  `UsageCache` (per-session `du` cache)
+  `filterFileSystems`, `parseDu`, `buildDirUsage`) + the `CommandRunner` seam +
+  `listFileSystems` / `scanDirectory` / `UsageCache` (per-session cache)
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
+- `src/gatherer.ts` gathers through a `CommandRunner`, never through
+  `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
+  bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole
+  gathering layer runs under Node. New gathering code must not call `cockpit.*`
+  itself.
 - Pure parsing functions live in `.ts` files so they can be unit-tested in Node;
   keep parsers free of `cockpit.*` calls. Formatting is 4-space indent
   (eslint overrides the standard config's default).
+- `GLOSSARY.md` names the domain and seam vocabulary; use those words in code
+  and comments.
 
 ## Tests
 

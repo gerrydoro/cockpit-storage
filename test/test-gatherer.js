@@ -3,15 +3,18 @@
  *
  * Copyright (C) 2026 Red Hat, Inc.
  *
- * QUnit unit tests for the pure parsing / formatting helpers. These run in
- * Node, so they never talk to the cockpit bridge: they feed sample `df`,
- * `/proc/mounts` and `du` output to the exported functions and assert on the
- * parsed result.
+ * QUnit unit tests for the pure parsing / formatting helpers, and for the
+ * gathering layer behind the `CommandRunner` seam. These run in Node, so they
+ * never talk to the cockpit bridge: the parsing tests feed sample `df`,
+ * `/proc/mounts` and `du` output to the pure functions, and the gathering
+ * tests hand the runners an `inMemoryRunner` printed with canned output.
  */
 
 /* global QUnit */
 
-import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage } from '../src/gatherer.js';
+import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
+         listFileSystems, scanDirectory, UsageCache } from '../src/gatherer.js';
+import { inMemoryRunner } from './mock-cockpit.js';
 import { squarify } from '../src/layout.js';
 import { formatSize } from '../src/format.js';
 
@@ -259,4 +262,256 @@ QUnit.test('formats byte counts with appropriate units', assert => {
 QUnit.test('handles non-finite and negative input', assert => {
     assert.equal(formatSize(-5), '0 B');
     assert.equal(formatSize(NaN), '0 B');
+});
+
+/* ---- listFileSystems ---- */
+
+QUnit.module('listFileSystems');
+
+const MOUNTS = [
+    'proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0',
+    '/dev/nvme0n1p2 / ext4 rw,relatime 0 0',
+    '/dev/sdb1 /mnt/backups ext4 rw,relatime 0 0',
+    '/dev/nvme0n1p2 /nix/store ext4 rw,relatime 0 0',
+    'tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0',
+    '',
+].join('\n');
+
+const DF = [
+    'Filesystem     1024-blocks    Used Available Capacity Mounted on',
+    '/dev/nvme0n1p2   480531788 2345645 478702943       1% /',
+    '/dev/sdb1       999999999 5000000 994999999       1% /mnt/backups',
+    'tmpfs              8192000        0   8192000       0% /dev/shm',
+    '/dev/nvme0n1p2   480531788 2345645 478702943       1% /nix/store',
+    '',
+].join('\n');
+
+function runnerWith(df = DF, mounts = MOUNTS, dirs = {}) {
+    return inMemoryRunner({ mounts, df, dirs });
+}
+
+QUnit.test('combines /proc/mounts with df and drops virtual filesystems', async assert => {
+    const filesystems = await listFileSystems(runnerWith());
+
+    assert.equal(filesystems.length, 2, 'tmpfs dropped, bind mount collapsed');
+    assert.deepEqual(filesystems.map(fs => fs.mount), ['/', '/mnt/backups']);
+
+    const root = filesystems[0];
+    assert.equal(root.device, '/dev/nvme0n1p2', 'device taken from /proc/mounts');
+    assert.equal(root.fstype, 'ext4', 'fstype annotated from /proc/mounts');
+    assert.equal(root.used, 2345645, 'sizes still come from df');
+    assert.equal(root.capacity, 1);
+});
+
+QUnit.test('rejects when the runner cannot read /proc/mounts', async assert => {
+    const runner = inMemoryRunner({ mounts: '', df: DF });
+    runner.read = () => Promise.reject(new Error('bridge went away'));
+
+    await assert.rejects(listFileSystems(runner), /bridge went away/,
+                         'the failure is not swallowed into an empty filesystem list');
+});
+
+/* ---- scanDirectory ---- */
+
+QUnit.module('scanDirectory');
+
+const ROOT_DU = [
+    '4096\t.',
+    '2048\t./docs',
+    '1024\t./readme.txt',
+    '256\t./z-file',
+    '',
+].join('\n');
+
+QUnit.test('runs du and find, then joins the output into a level', async assert => {
+    const runner = runnerWith(DF, MOUNTS, {
+        '/': { du: ROOT_DU, find: 'docs\n' },
+    });
+
+    const usage = await scanDirectory('/', runner);
+    assert.equal(usage.path, '/');
+    assert.equal(usage.size, 4096, 'total from the `.` record');
+    assert.equal(usage.complete, true);
+
+    assert.deepEqual(usage.entries.map(e => e.name), ['docs', 'readme.txt', 'z-file']);
+    const docs = usage.entries.find(e => e.name === 'docs');
+    assert.equal(docs.isDir, true, 'find marked it as a directory');
+    assert.equal(docs.path, '/docs', 'du output is relative, so the path is rejoined');
+
+    const readme = usage.entries.find(e => e.name === 'readme.txt');
+    assert.equal(readme.isDir, false, 'a file reported by du but not by find');
+    assert.equal(readme.path, '/readme.txt');
+});
+
+QUnit.test('scans the directory it is asked to, not the working directory', async assert => {
+    const seen = {};
+    const runner = runnerWith(DF, MOUNTS, {
+        '/home/user': {
+            du: '2048\t.\n1024\t./big\n',
+            find: 'big\n',
+        },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        seen[args[0]] = options?.directory;
+        return inner(args, options);
+    };
+
+    await scanDirectory('/home/user', runner);
+
+    assert.equal(seen.du, '/home/user', 'du is given the target as its working directory');
+    assert.equal(seen.find, '/home/user', 'find likewise, and in parallel with du');
+});
+
+QUnit.test('reports complete: false when du fails but still returns children', async assert => {
+    const runner = runnerWith(DF, MOUNTS, {
+        '/root/locked': { du: null, find: 'docs\n' },
+    });
+
+    const usage = await scanDirectory('/root/locked', runner);
+    assert.equal(usage.complete, false, 'a failed du is surfaced to the UI');
+    assert.equal(usage.size, 0, 'nothing was read');
+    assert.equal(usage.entries.length, 0);
+});
+
+QUnit.test('reports complete: false when find fails', async assert => {
+    const runner = runnerWith(DF, MOUNTS, {
+        '/': { du: ROOT_DU, find: null },
+    });
+
+    const usage = await scanDirectory('/', runner);
+    assert.equal(usage.complete, false, 'complete is the AND of both commands');
+    assert.equal(usage.size, 4096, 'du output is still used');
+    assert.equal(usage.entries.find(e => e.name === 'docs').isDir, false,
+                 'without find, no child can be marked as a directory');
+});
+
+QUnit.test('falls back to summing children when du omits the total', async assert => {
+    const du = ['1024\t./a', '512\t./b', ''].join('\n');
+    const usage = await scanDirectory('/', runnerWith(DF, MOUNTS, {
+        '/': { du, find: 'a\nb\n' },
+    }));
+
+    assert.equal(usage.size, 1536, 'the `.` record was missing');
+});
+
+QUnit.test('does not double the root separator when joining', async assert => {
+    const runner = runnerWith(DF, MOUNTS, {
+        '/': { du: '2048\t.\n1024\t./docs\n', find: 'docs\n' },
+    });
+    const usage = await scanDirectory('/', runner);
+    assert.equal(usage.entries[0].path, '/docs', 'not //docs');
+});
+
+/* ---- UsageCache ---- */
+
+QUnit.module('UsageCache');
+
+QUnit.test('scans each directory once per session', async assert => {
+    let duCalls = 0;
+    const runner = runnerWith(DF, MOUNTS, {
+        '/': { du: ROOT_DU, find: 'docs\n' },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'du')
+            duCalls += 1;
+        return inner(args, options);
+    };
+
+    const cache = new UsageCache(runner);
+    const first = await cache.getDirectory('/');
+    const second = await cache.getDirectory('/');
+
+    assert.deepEqual(second, first, 'the same level comes back, not a fresh scan');
+    assert.equal(duCalls, 1, 'a second visit does not run du again');
+});
+
+QUnit.test('re-scans after clear()', async assert => {
+    let duCalls = 0;
+    const runner = runnerWith(DF, MOUNTS, {
+        '/': { du: ROOT_DU, find: 'docs\n' },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'du')
+            duCalls += 1;
+        return inner(args, options);
+    };
+
+    const cache = new UsageCache(runner);
+    await cache.getDirectory('/');
+    cache.clear();
+    await cache.getDirectory('/');
+
+    assert.equal(duCalls, 2, 'Rescan really does drop the cached scan');
+});
+
+QUnit.test('lists the filesystems once, and again after clear()', async assert => {
+    let reads = 0;
+    const runner = runnerWith();
+    const inner = runner.read;
+    runner.read = path => {
+        reads += 1;
+        return inner(path);
+    };
+
+    const cache = new UsageCache(runner);
+    await cache.getFileSystems();
+    await cache.getFileSystems();
+    assert.equal(reads, 1, 'the filesystem list is memoised');
+
+    cache.clear();
+    await cache.getFileSystems();
+    assert.equal(reads, 2, 'and dropped on clear()');
+});
+
+QUnit.test('a rejected scan is not cached, so a retry can succeed', async assert => {
+    /* this is the case that used to poison a path for the whole session */
+    const runner = runnerWith(DF, MOUNTS, {
+        '/unreadable': { du: ROOT_DU, find: 'docs\n' },
+    });
+
+    const cache = new UsageCache(runner);
+    const policy = runner.run;
+    let attempts = 0;
+    let bridgeDown = true;
+    runner.run = (args, options) => {
+        attempts += 1;
+        if (bridgeDown)
+            return Promise.reject(new Error('bridge went away'));
+        return policy(args, options);
+    };
+
+    await assert.rejects(cache.getDirectory('/unreadable'), /bridge went away/,
+                         'the scan itself rejected');
+    assert.equal(attempts, 2, 'both commands of the scan were attempted');
+
+    bridgeDown = false;
+    attempts = 0;
+    const usage = await cache.getDirectory('/unreadable');
+    assert.equal(usage.size, 4096, 'the retry succeeded instead of returning the poisoning');
+    assert.equal(usage.complete, true);
+    assert.equal(attempts, 2, 'a second scan really ran, rather than a rejection being replayed');
+});
+
+QUnit.test('an incomplete scan is cached, because it is a result and not a failure', async assert => {
+    let duCalls = 0;
+    const runner = runnerWith(DF, MOUNTS, {
+        '/locked': { du: null, find: 'docs\n' },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'du')
+            duCalls += 1;
+        return inner(args, options);
+    };
+
+    const cache = new UsageCache(runner);
+    const first = await cache.getDirectory('/locked');
+    const second = await cache.getDirectory('/locked');
+
+    assert.equal(first.complete, false, 'unreadable directories are reported, not retried');
+    assert.equal(second, first);
+    assert.equal(duCalls, 1, 'Rescan is the way to retry, not revisiting the directory');
 });

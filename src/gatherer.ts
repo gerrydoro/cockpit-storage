@@ -15,6 +15,12 @@ import type { SpawnOptions } from 'cockpit';
  * same heuristic baobab uses). Directory usage is gathered on demand with
  * `du` so that drilling into a directory is instant for already-visited
  * subtrees, which are cached per session.
+ *
+ * Everything here is testable through one seam: the `CommandRunner`. The
+ * gathering code never names `cockpit.spawn` or `cockpit.file` itself; it asks
+ * the runner for command output, so an in-memory runner can exercise the whole
+ * layer under Node. `cockpitRunner` is the only adapter that knows about the
+ * bridge, and it is the one place that contract has to be right.
  */
 
 /* Fictional/virtual filesystems we never want to present as usable storage. */
@@ -181,25 +187,50 @@ export function parseDu(text: string): RawDuEntry[] {
     return result;
 }
 
-/* ---- command runners ---- */
+/* ---- the seam: what the gatherer needs from the world ---- */
 
 type TextSpawnOptions = Omit<SpawnOptions, 'binary'>;
 
-function collectSpawn(args: string[], options?: TextSpawnOptions): Promise<{ output: string; ok: boolean }> {
-    return new Promise(resolve => {
-        let output = '';
-        const proc = options ? cockpit.spawn(args, options) : cockpit.spawn(args);
-        proc.stream(chunk => { output += chunk });
-        proc.done(() => resolve({ output, ok: true }));
-        proc.fail(() => resolve({ output, ok: false }));
-    });
+export interface CommandResult {
+    output: string;
+    /* false when the command exited non-zero (e.g. unreadable directories) */
+    ok: boolean;
+}
+
+export interface CommandRunner {
+    /* Run a command, capturing stdout as text. Never rejects on a non-zero
+       exit -- that is reported as `ok: false` so callers decide what it means. */
+    run(args: string[], options?: TextSpawnOptions): Promise<CommandResult>;
+    /* Read a file from the bridge as text. */
+    read(path: string): Promise<string>;
+}
+
+/*
+ * The production adapter: the only code in this module that touches the
+ * cockpit bridge. Rejects nothing on command failure -- see CommandResult.
+ */
+export function cockpitRunner(): CommandRunner {
+    return {
+        run(args, options) {
+            return new Promise(resolve => {
+                let output = '';
+                const proc = options ? cockpit.spawn(args, options) : cockpit.spawn(args);
+                proc.stream(chunk => { output += chunk });
+                proc.done(() => resolve({ output, ok: true }));
+                proc.fail(() => resolve({ output, ok: false }));
+            });
+        },
+        read(path) {
+            return cockpit.file(path).read();
+        },
+    };
 }
 
 /* Enumerate usable mounted filesystems with usage. */
-export async function listFileSystems(): Promise<FileSystem[]> {
+export async function listFileSystems(runner: CommandRunner): Promise<FileSystem[]> {
     const [mountsText, df] = await Promise.all([
-        cockpit.file('/proc/mounts').read(),
-        collectSpawn(['df', '-Pk']),
+        runner.read('/proc/mounts'),
+        runner.run(['df', '-Pk']),
     ]);
 
     const mounts = parseMounts(mountsText);
@@ -248,29 +279,49 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
  * Scan the immediate children of `path` with `du`. Returns each child's
  * total disk usage; unreadable subtrees produce `complete: false`.
  */
-export async function scanDirectory(path: string): Promise<DirUsage> {
+export async function scanDirectory(path: string, runner: CommandRunner): Promise<DirUsage> {
     const [duResult, findResult] = await Promise.all([
-        collectSpawn(['du', '-a', '-B1', '-x', '-d', '1', '.'], { directory: path }),
-        collectSpawn(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
+        runner.run(['du', '-a', '-B1', '-x', '-d', '1', '.'], { directory: path }),
+        runner.run(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
     ]);
 
     return buildDirUsage(path, duResult.output, findResult.output, duResult.ok && findResult.ok);
 }
 
+/*
+ * Per-session memo for scans and the filesystem list. Takes the runner at
+ * construction so the whole cache can be driven from an in-memory runner.
+ *
+ * A rejected scan is dropped rather than cached: `du` fails for reasons that
+ * do not survive a retry, and the caller cannot tell a poisoned entry from a
+ * good one -- both come back as a rejected promise.
+ */
 export class UsageCache {
+    private readonly runner: CommandRunner;
     private dirs = new Map<string, Promise<DirUsage>>();
     private fileSystems: Promise<FileSystem[]> | null = null;
 
+    constructor(runner: CommandRunner) {
+        this.runner = runner;
+    }
+
     getFileSystems(): Promise<FileSystem[]> {
         if (!this.fileSystems)
-            this.fileSystems = listFileSystems();
+            this.fileSystems = listFileSystems(this.runner);
         return this.fileSystems;
     }
 
     getDirectory(path: string): Promise<DirUsage> {
-        if (!this.dirs.has(path))
-            this.dirs.set(path, scanDirectory(path));
-        return this.dirs.get(path)!;
+        const cached = this.dirs.get(path);
+        if (cached)
+            return cached;
+
+        const running = scanDirectory(path, this.runner).catch(err => {
+            this.dirs.delete(path);
+            throw err;
+        });
+        this.dirs.set(path, running);
+        return running;
     }
 
     clear(): void {
