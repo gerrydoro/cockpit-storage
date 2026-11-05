@@ -46,8 +46,12 @@ Commands:
 - `src/gatherer.ts` — pure parsers (`parseMounts`, `parseDf`,
   `filterFileSystems`, `parseDu`, `buildDirUsage`) + the `CommandRunner` seam +
   `listFileSystems` / `scanDirectory` / `UsageCache` (per-session cache)
-- `src/paths.ts` — `joinPath` / `baseName` / `pathDepth`, shared by the trail
-  and the gatherer; the one home of the root-separator rule
+- `src/paths.ts` — `joinPath` / `baseName` / `pathDepth` (the one home of the
+  root-separator rule) and `Bytes`, with `kibToBytes` / `bytes`. All sizes are
+  Bytes: `df -Pk` block counts are converted at the parse boundary, so a size
+  never needs multiplying by 1024 at a call site, and passing a block count to
+  `formatSize` is a type error. `test/type-assertions.ts` pins that in the
+  build.
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
 - `src/chart.ts` — the chart vocabulary: `ChartDatum`, the palette, the
   colour-slot rule, and turning a level's entries into chart data. Both charts
@@ -56,6 +60,7 @@ Commands:
 - `src/layout.ts` — `place` lays a treemap and hands each datum back with its
   rectangle, so the caller never repeats the layout's filter and sort or joins
   rectangles to data by position. `squarify` is the geometry underneath it.
+- `src/gatherer.ts` gathers through a `CommandRunner`, never through
   `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
   bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole
   gathering layer runs under Node. New gathering code must not call `cockpit.*`

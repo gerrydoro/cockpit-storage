@@ -25,6 +25,15 @@ introduce a new concept, add it here.
   when either command exited non-zero, which is how we report unreadable
   directories.
 
+**Bytes**
+: The one size unit in this module. Branded so the type system keeps it apart
+  from a size in any other unit: `df -Pk` reports 1024-byte blocks, `du`
+  reports bytes. Everything downstream of the parsers is Bytes, so a size that
+  arrives in blocks is converted exactly once, at the parse boundary, with
+  `kibToBytes`. `bytes()` passes through a count that is already bytes. Before
+  this, the conversion was spelled out at three call sites in the picker and
+  nothing stopped a block count reaching `formatSize`.
+
 **Entry**
 : One child of a Level: a name, a path, a size, and whether it is a directory.
   `UsageEntry`.

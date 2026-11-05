@@ -8,6 +8,7 @@ import React from 'react';
 import cockpit from 'cockpit';
 import { place } from './layout.js';
 import { formatSize } from './format.js';
+import { bytes } from './paths.js';
 import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 
 const _ = cockpit.gettext;
@@ -37,7 +38,7 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
 
     /* The caption reports what was actually laid out, so it cannot disagree
        with the areas it labels. */
-    const drawnTotal = placed.reduce((sum, datum) => sum + datum.size, 0);
+    const drawnTotal: number = placed.reduce((sum, datum) => sum + datum.size, 0);
 
     return (
         <svg
@@ -89,7 +90,7 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
             <text
                 x={WIDTH / 2} y={HEIGHT + 18} fontSize="13" fill="var(--ct-color-subtle-copy)"
                 textAnchor="middle"
-            >{formatSize(drawnTotal)} {_("total")}
+            >{formatSize(bytes(drawnTotal))} {_("total")}
             </text>
         </svg>
     );

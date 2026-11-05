@@ -7,7 +7,7 @@
 import cockpit from 'cockpit';
 import type { SpawnOptions } from 'cockpit';
 
-import { joinPath, pathDepth } from './paths.js';
+import { joinPath, pathDepth, bytes, kibToBytes, type Bytes } from './paths.js';
 
 /*
  * Data gathering for the disk-usage analyzer.
@@ -58,23 +58,23 @@ export interface FileSystem {
     device: string;
     mount: string;
     fstype: string;
-    /* sizes reported by df in 1024-byte blocks */
-    blocks: number;
-    used: number;
-    avail: number;
+    /* sizes from df, converted from its 1024-byte blocks to bytes */
+    blocks: Bytes;
+    used: Bytes;
+    avail: Bytes;
     capacity: number; // percentage 0-100
 }
 
 export interface UsageEntry {
     name: string;
     path: string;
-    size: number; // disk usage in bytes
+    size: Bytes; // disk usage in bytes
     isDir: boolean;
 }
 
 export interface DirUsage {
     path: string;
-    size: number; // total disk usage of this directory in bytes
+    size: Bytes; // total disk usage of this directory in bytes
     entries: UsageEntry[];
     complete: boolean; // false if `du` errored (e.g. unreadable subdirectories)
 }
@@ -111,9 +111,10 @@ export function parseDf(text: string): FileSystem[] {
         if (m)
             result.push({
                 device: m[1],
-                blocks: Number(m[2]),
-                used: Number(m[3]),
-                avail: Number(m[4]),
+                /* df -Pk counts 1024-byte blocks; everything downstream is bytes */
+                blocks: kibToBytes(Number(m[2])),
+                used: kibToBytes(Number(m[3])),
+                avail: kibToBytes(Number(m[4])),
                 capacity: Number(m[5]),
                 mount: m[6].trim(),
                 fstype: '',
@@ -160,7 +161,7 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
     return result;
 }
 
-export interface RawDuEntry { path: string; size: number; }
+export interface RawDuEntry { path: string; size: Bytes; }
 
 /*
  * Parse `du -B1 -d 1` output (newline-delimited records of `size\tpath`).
@@ -183,7 +184,7 @@ export function parseDu(text: string): RawDuEntry[] {
         const size = Number(record.slice(0, tab));
         if (Number.isNaN(size))
             continue;
-        result.push({ path: record.slice(tab + 1), size });
+        result.push({ path: record.slice(tab + 1), size: bytes(size) });
     }
     return result;
 }
@@ -253,7 +254,7 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
     const subdirs = new Set(subdirText.split('\n').filter(Boolean));
 
     const children: UsageEntry[] = [];
-    let total = 0;
+    let total: Bytes = bytes(0);
     for (const entry of entries) {
         /* `du` emits the directory total first, as a bare `.` record. */
         if (entry.path === '.') {
@@ -273,7 +274,8 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
 
     children.sort((a, b) => b.size - a.size);
     /* Fall back to summing the children if `du` omitted the `.` total. */
-    return { path, size: total || children.reduce((s, c) => s + c.size, 0), entries: children, complete };
+    const fallback: Bytes = children.reduce((s, c) => (s + c.size) as Bytes, bytes(0));
+    return { path, size: total || fallback, entries: children, complete };
 }
 
 /*

@@ -17,11 +17,12 @@ import { parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
 import { inMemoryRunner } from './mock-cockpit.js';
 import { formatSize } from '../src/format.js';
 
-/* Registers the navigation rules, the chart vocabulary and the layout; QUnit
-   collects modules at import time. */
+/* Registers the navigation rules, the chart vocabulary, the layout and the byte
+   unit; QUnit collects modules at import time. */
 import './test-trail.js';
 import './test-chart.js';
 import './test-layout.js';
+import './test-units.js';
 
 /* ---- parseMounts ---- */
 
@@ -67,7 +68,7 @@ QUnit.test('decodes all octal escapes, not just spaces', assert => {
 
 QUnit.module('parseDf');
 
-QUnit.test('parses df -Pk output and skips the header', assert => {
+QUnit.test('converts df blocks to bytes and skips the header', assert => {
     const text = [
         'Filesystem     1024-blocks    Used Available Capacity Mounted on',
         '/dev/nvme0n1p2   480531788 2345645 478702943       1% /',
@@ -79,9 +80,9 @@ QUnit.test('parses df -Pk output and skips the header', assert => {
     assert.equal(filesystems.length, 2, 'header line skipped');
     assert.deepEqual(filesystems[0], {
         device: '/dev/nvme0n1p2',
-        blocks: 480531788,
-        used: 2345645,
-        avail: 478702943,
+        blocks: 480531788 * 1024,
+        used: 2345645 * 1024,
+        avail: 478702943 * 1024,
         capacity: 1,
         mount: '/',
         fstype: '',
@@ -278,8 +279,9 @@ QUnit.test('combines /proc/mounts with df and drops virtual filesystems', async 
     const root = filesystems[0];
     assert.equal(root.device, '/dev/nvme0n1p2', 'device taken from /proc/mounts');
     assert.equal(root.fstype, 'ext4', 'fstype annotated from /proc/mounts');
-    assert.equal(root.used, 2345645, 'sizes still come from df');
+    assert.equal(root.used, 2345645 * 1024, 'sizes still come from df, in bytes');
     assert.equal(root.capacity, 1);
+    assert.equal(root.blocks, 480531788 * 1024, 'sizes are bytes by the time they leave df');
 });
 
 QUnit.test('rejects when the runner cannot read /proc/mounts', async assert => {

@@ -5,6 +5,7 @@
  */
 
 import type { UsageEntry } from './gatherer.js';
+import { bytes, type Bytes } from './paths.js';
 
 /*
  * What a chart draws, and the one rule for colouring it.
@@ -22,7 +23,7 @@ import type { UsageEntry } from './gatherer.js';
    the chart re-deriving it from a name it knows nothing about. */
 export interface ChartDatum {
     name: string;
-    size: number;
+    size: Bytes;
     /* the chart makes it clickable only when this is set */
     navigable?: boolean;
     /* aggregated rather than a real entry, e.g. the tail past the slice cap */
@@ -71,7 +72,7 @@ export function capped(data: ChartDatum[], limit: number, otherLabel: string): C
         ...data.slice(0, limit),
         {
             name: otherLabel,
-            size: tail.reduce((sum, datum) => sum + datum.size, 0),
+            size: bytes(tail.reduce((sum, datum) => sum + datum.size, 0)),
             synthetic: true,
         },
     ];

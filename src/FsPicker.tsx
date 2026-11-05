@@ -28,7 +28,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
        picking a filesystem always is. */
     const data: ChartDatum[] = fileSystems.map(fs => ({
         name: fs.mount,
-        size: fs.used * 1024,
+        size: fs.used,
         navigable: true,
     }));
 
@@ -65,7 +65,7 @@ export const FsPicker = ({ fileSystems, onSelect, error }: Props) => {
                                         {fs.device} — {fs.fstype}
                                     </span>
                                     <span className="fs-picker-detail">
-                                        {formatSize(fs.used * 1024)} used / {formatSize(fs.blocks * 1024)} total ({fs.capacity}%)
+                                        {formatSize(fs.used)} used / {formatSize(fs.blocks)} total ({fs.capacity}%)
                                     </span>
                                 </Button>
                             ))}

@@ -32,6 +32,7 @@ import { Breadcrumbs } from './Breadcrumbs.jsx';
 import { FsPicker } from './FsPicker.jsx';
 import { formatSize } from './format.js';
 import { capped, levelData } from './chart.js';
+import { bytes, type Bytes } from './paths.js';
 
 const _ = cockpit.gettext;
 
@@ -125,7 +126,7 @@ export const Application = () => {
     const goBack = () => setTrail(trail.back());
 
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
-    const totalSize = dirUsage?.size ?? 0;
+    const totalSize: Bytes = dirUsage?.size ?? bytes(0);
 
     /* Both charts draw the same prepared list, so one level is one set of
        colours and one aggregate whichever view you are in. */
