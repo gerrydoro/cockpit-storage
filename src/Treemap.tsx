@@ -6,55 +6,50 @@
 
 import React from 'react';
 import cockpit from 'cockpit';
-import { squarify } from './layout.js';
+import { place } from './layout.js';
 import { formatSize } from './format.js';
+import { bytes } from './paths.js';
+import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 
 const _ = cockpit.gettext;
 
-export interface TreemapDatum {
-    name: string;
-    size: number;
-    isDir?: boolean;
-}
+/* The treemap scales to its container, so this is only the coordinate system
+   the layout works in -- never a size a caller has to pass. */
+const WIDTH = 1000;
+const HEIGHT = 560;
+/* Room for the caption, which is drawn below the area rather than inside it. */
+const CAPTION_HEIGHT = 24;
 
 interface Props {
-    data: TreemapDatum[];
-    total: number;
-    width?: number;
-    height?: number;
+    data: ChartDatum[];
     selected?: string | null;
     onSelect?: (name: string) => void;
 }
 
-/* Colors are CSS custom properties defined in app.scss, so the dark theme
-   swaps in darker shades while the labels keep using theme-aware colors. */
-const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
+export const Treemap = ({ data, selected, onSelect }: Props) => {
+    /* The layout hands each datum back with its rectangle, so nothing here has
+       to repeat its filter or its sort, or match a rectangle to a datum by
+       position. */
+    const placed = place(data, 0, 0, WIDTH, HEIGHT);
 
-export const Treemap = ({ data, total, width = 1000, height = 560, selected, onSelect }: Props) => {
-    /* order the layout by size (descending), mirroring squarify's sort */
-    const sorted = data
-            .filter(d => d.size > 0)
-            .sort((a, b) => b.size - a.size);
+    /* Colour slots are decided by chart.js, so the treemap and the ring chart
+       agree on which directory is which colour. */
+    const slots = colorSlots(data);
 
-    const rects = squarify(sorted.map(d => d.size), 0, 0, width, height);
-
-    /* map each datum to its color slot once, instead of scanning `data` per
-       rectangle (which is O(n^2)) */
-    const colorSlots = new Map(data.map((d, i) => [d.name, i]));
+    /* The caption reports what was actually laid out, so it cannot disagree
+       with the areas it labels. */
+    const drawnTotal: number = placed.reduce((sum, datum) => sum + datum.size, 0);
 
     return (
         <svg
-            viewBox={`0 0 ${width} ${height}`}
+            viewBox={`0 0 ${WIDTH} ${HEIGHT + CAPTION_HEIGHT}`}
             style={{ width: '100%', height: 'auto', display: 'block' }}
             data-testid="treemap"
         >
-            {rects.map((r, i) => {
-                const datum = sorted[i];
-                if (!datum)
-                    return null;
-                const fill = PALETTE[(colorSlots.get(datum.name) ?? 0) % PALETTE.length];
+            {placed.map(datum => {
+                const fill = paletteColor(slots.get(datum.name) ?? 0);
                 const isSel = selected === datum.name;
-                const clickable = Boolean(onSelect && datum.isDir);
+                const clickable = Boolean(onSelect && datum.navigable);
                 const activate = () => onSelect?.(datum.name);
                 return (
                     <g
@@ -75,15 +70,15 @@ export const Treemap = ({ data, total, width = 1000, height = 560, selected, onS
                         data-testid="treemap-cell"
                     >
                         <rect
-                            x={r.x} y={r.y} width={r.w} height={r.h}
+                            x={datum.x} y={datum.y} width={datum.w} height={datum.h}
                             fill={fill}
                             opacity={isSel ? 1 : 0.85}
                             stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
                             strokeWidth={isSel ? 2 : 1}
                         />
-                        {r.w > 60 && r.h > 30 && (
+                        {datum.w > 60 && datum.h > 30 && (
                             <text
-                                x={r.x + 5} y={r.y + 16}
+                                x={datum.x + 5} y={datum.y + 16}
                                 fontSize="14" fill="#ffffff"
                                 style={{ pointerEvents: 'none' }}
                             >{datum.name}
@@ -93,9 +88,9 @@ export const Treemap = ({ data, total, width = 1000, height = 560, selected, onS
                 );
             })}
             <text
-                x={width / 2} y={height + 20} fontSize="13" fill="var(--ct-color-subtle-copy)"
+                x={WIDTH / 2} y={HEIGHT + 18} fontSize="13" fill="var(--ct-color-subtle-copy)"
                 textAnchor="middle"
-            >{formatSize(total)} {_("total")}
+            >{formatSize(bytes(drawnTotal))} {_("total")}
             </text>
         </svg>
     );

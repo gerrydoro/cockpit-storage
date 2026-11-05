@@ -7,6 +7,8 @@
 import cockpit from 'cockpit';
 import type { SpawnOptions } from 'cockpit';
 
+import { joinPath, pathDepth, bytes, kibToBytes, type Bytes } from './paths.js';
+
 /*
  * Data gathering for the disk-usage analyzer.
  *
@@ -15,6 +17,12 @@ import type { SpawnOptions } from 'cockpit';
  * same heuristic baobab uses). Directory usage is gathered on demand with
  * `du` so that drilling into a directory is instant for already-visited
  * subtrees, which are cached per session.
+ *
+ * Everything here is testable through one seam: the `CommandRunner`. The
+ * gathering code never names `cockpit.spawn` or `cockpit.file` itself; it asks
+ * the runner for command output, so an in-memory runner can exercise the whole
+ * layer under Node. `cockpitRunner` is the only adapter that knows about the
+ * bridge, and it is the one place that contract has to be right.
  */
 
 /* Fictional/virtual filesystems we never want to present as usable storage. */
@@ -50,23 +58,23 @@ export interface FileSystem {
     device: string;
     mount: string;
     fstype: string;
-    /* sizes reported by df in 1024-byte blocks */
-    blocks: number;
-    used: number;
-    avail: number;
+    /* sizes from df, converted from its 1024-byte blocks to bytes */
+    blocks: Bytes;
+    used: Bytes;
+    avail: Bytes;
     capacity: number; // percentage 0-100
 }
 
 export interface UsageEntry {
     name: string;
     path: string;
-    size: number; // disk usage in bytes
+    size: Bytes; // disk usage in bytes
     isDir: boolean;
 }
 
 export interface DirUsage {
     path: string;
-    size: number; // total disk usage of this directory in bytes
+    size: Bytes; // total disk usage of this directory in bytes
     entries: UsageEntry[];
     complete: boolean; // false if `du` errored (e.g. unreadable subdirectories)
 }
@@ -103,9 +111,10 @@ export function parseDf(text: string): FileSystem[] {
         if (m)
             result.push({
                 device: m[1],
-                blocks: Number(m[2]),
-                used: Number(m[3]),
-                avail: Number(m[4]),
+                /* df -Pk counts 1024-byte blocks; everything downstream is bytes */
+                blocks: kibToBytes(Number(m[2])),
+                used: kibToBytes(Number(m[3])),
+                avail: kibToBytes(Number(m[4])),
                 capacity: Number(m[5]),
                 mount: m[6].trim(),
                 fstype: '',
@@ -142,10 +151,9 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
 
     /* Path depth, not string length: `/srv/data` (9 chars) is shallower than
      * `/media/pics` (11 chars) even though the shorter string wins on length. */
-    const depth = (mount: string) => mount.split('/').filter(Boolean).length;
     const result: FileSystem[] = [];
     for (const group of byDevice.values()) {
-        group.sort((a, b) => depth(a.mount) - depth(b.mount) || a.mount.length - b.mount.length);
+        group.sort((a, b) => pathDepth(a.mount) - pathDepth(b.mount) || a.mount.length - b.mount.length);
         result.push(group[0]);
     }
     result.sort((a, b) => (a.mount === '/' ? -1 : b.mount === '/' ? 1 : a.mount.localeCompare(b.mount)));
@@ -153,7 +161,7 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
     return result;
 }
 
-export interface RawDuEntry { path: string; size: number; }
+export interface RawDuEntry { path: string; size: Bytes; }
 
 /*
  * Parse `du -B1 -d 1` output (newline-delimited records of `size\tpath`).
@@ -176,30 +184,55 @@ export function parseDu(text: string): RawDuEntry[] {
         const size = Number(record.slice(0, tab));
         if (Number.isNaN(size))
             continue;
-        result.push({ path: record.slice(tab + 1), size });
+        result.push({ path: record.slice(tab + 1), size: bytes(size) });
     }
     return result;
 }
 
-/* ---- command runners ---- */
+/* ---- the seam: what the gatherer needs from the world ---- */
 
 type TextSpawnOptions = Omit<SpawnOptions, 'binary'>;
 
-function collectSpawn(args: string[], options?: TextSpawnOptions): Promise<{ output: string; ok: boolean }> {
-    return new Promise(resolve => {
-        let output = '';
-        const proc = options ? cockpit.spawn(args, options) : cockpit.spawn(args);
-        proc.stream(chunk => { output += chunk });
-        proc.done(() => resolve({ output, ok: true }));
-        proc.fail(() => resolve({ output, ok: false }));
-    });
+export interface CommandResult {
+    output: string;
+    /* false when the command exited non-zero (e.g. unreadable directories) */
+    ok: boolean;
+}
+
+export interface CommandRunner {
+    /* Run a command, capturing stdout as text. Never rejects on a non-zero
+       exit -- that is reported as `ok: false` so callers decide what it means. */
+    run(args: string[], options?: TextSpawnOptions): Promise<CommandResult>;
+    /* Read a file from the bridge as text. */
+    read(path: string): Promise<string>;
+}
+
+/*
+ * The production adapter: the only code in this module that touches the
+ * cockpit bridge. Rejects nothing on command failure -- see CommandResult.
+ */
+export function cockpitRunner(): CommandRunner {
+    return {
+        run(args, options) {
+            return new Promise(resolve => {
+                let output = '';
+                const proc = options ? cockpit.spawn(args, options) : cockpit.spawn(args);
+                proc.stream(chunk => { output += chunk });
+                proc.done(() => resolve({ output, ok: true }));
+                proc.fail(() => resolve({ output, ok: false }));
+            });
+        },
+        read(path) {
+            return cockpit.file(path).read();
+        },
+    };
 }
 
 /* Enumerate usable mounted filesystems with usage. */
-export async function listFileSystems(): Promise<FileSystem[]> {
+export async function listFileSystems(runner: CommandRunner): Promise<FileSystem[]> {
     const [mountsText, df] = await Promise.all([
-        cockpit.file('/proc/mounts').read(),
-        collectSpawn(['df', '-Pk']),
+        runner.read('/proc/mounts'),
+        runner.run(['df', '-Pk']),
     ]);
 
     const mounts = parseMounts(mountsText);
@@ -221,7 +254,7 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
     const subdirs = new Set(subdirText.split('\n').filter(Boolean));
 
     const children: UsageEntry[] = [];
-    let total = 0;
+    let total: Bytes = bytes(0);
     for (const entry of entries) {
         /* `du` emits the directory total first, as a bare `.` record. */
         if (entry.path === '.') {
@@ -233,7 +266,7 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
             continue;
         children.push({
             name,
-            path: path === '/' ? '/' + name : path + '/' + name,
+            path: joinPath(path, name),
             size: entry.size,
             isDir: subdirs.has(name),
         });
@@ -241,36 +274,57 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
 
     children.sort((a, b) => b.size - a.size);
     /* Fall back to summing the children if `du` omitted the `.` total. */
-    return { path, size: total || children.reduce((s, c) => s + c.size, 0), entries: children, complete };
+    const fallback: Bytes = children.reduce((s, c) => (s + c.size) as Bytes, bytes(0));
+    return { path, size: total || fallback, entries: children, complete };
 }
 
 /*
  * Scan the immediate children of `path` with `du`. Returns each child's
  * total disk usage; unreadable subtrees produce `complete: false`.
  */
-export async function scanDirectory(path: string): Promise<DirUsage> {
+export async function scanDirectory(path: string, runner: CommandRunner): Promise<DirUsage> {
     const [duResult, findResult] = await Promise.all([
-        collectSpawn(['du', '-a', '-B1', '-x', '-d', '1', '.'], { directory: path }),
-        collectSpawn(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
+        runner.run(['du', '-a', '-B1', '-x', '-d', '1', '.'], { directory: path }),
+        runner.run(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
     ]);
 
     return buildDirUsage(path, duResult.output, findResult.output, duResult.ok && findResult.ok);
 }
 
+/*
+ * Per-session memo for scans and the filesystem list. Takes the runner at
+ * construction so the whole cache can be driven from an in-memory runner.
+ *
+ * A rejected scan is dropped rather than cached: `du` fails for reasons that
+ * do not survive a retry, and the caller cannot tell a poisoned entry from a
+ * good one -- both come back as a rejected promise.
+ */
 export class UsageCache {
+    private readonly runner: CommandRunner;
     private dirs = new Map<string, Promise<DirUsage>>();
     private fileSystems: Promise<FileSystem[]> | null = null;
 
+    constructor(runner: CommandRunner) {
+        this.runner = runner;
+    }
+
     getFileSystems(): Promise<FileSystem[]> {
         if (!this.fileSystems)
-            this.fileSystems = listFileSystems();
+            this.fileSystems = listFileSystems(this.runner);
         return this.fileSystems;
     }
 
     getDirectory(path: string): Promise<DirUsage> {
-        if (!this.dirs.has(path))
-            this.dirs.set(path, scanDirectory(path));
-        return this.dirs.get(path)!;
+        const cached = this.dirs.get(path);
+        if (cached)
+            return cached;
+
+        const running = scanDirectory(path, this.runner).catch(err => {
+            this.dirs.delete(path);
+            throw err;
+        });
+        this.dirs.set(path, running);
+        return running;
     }
 
     clear(): void {

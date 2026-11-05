@@ -5,23 +5,18 @@
  */
 
 import React from 'react';
-
-export interface RingChartDatum {
-    name: string;
-    value: number;
-}
+import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 
 interface Props {
-    data: RingChartDatum[];
+    data: ChartDatum[];
     centerLabel: string;
     centerSub?: string;
     size?: number;
     thickness?: number;
 }
 
-/* Colors are CSS custom properties defined in app.scss, so the dark theme
-   swaps in darker shades while the labels keep using theme-aware colors. */
-const PALETTE = Array.from({ length: 14 }, (_, i) => `var(--storage-chart-${i})`);
+/* Colour slots are decided by chart.js, so the treemap and the ring chart
+   agree on which directory is which colour. */
 
 /* Two points closer than this are treated as identical; an SVG arc whose
    endpoints coincide is dropped entirely, so a 100% slice needs a <circle>. */
@@ -37,8 +32,13 @@ function arcPath(cx: number, cy: number, r: number, start: number, end: number):
 }
 
 export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness = 40 }: Props) => {
-    const usable = data.filter(d => d.value > 0);
-    const total = usable.reduce((s, d) => s + d.value, 0);
+    /* Slots come from the data as given, exactly as the treemap takes them:
+       a zero-size datum is skipped here but does not shift anyone else's
+       colour. */
+    const slots = colorSlots(data);
+    const colorOf = (datum: ChartDatum) => paletteColor(slots.get(datum.name) ?? 0);
+    const usable = data.filter(d => d.size > 0);
+    const total = usable.reduce((s, d) => s + d.size, 0);
     const cx = size / 2;
     const cy = size / 2;
     const r = size / 2 - thickness / 2;
@@ -61,9 +61,9 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
                     ? (
                         <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pf-t--global--border--color--default)" strokeWidth={thickness} />
                     )
-                    : usable.map((d, i) => {
+                    : usable.map((d) => {
                         const start = angle;
-                        const sweep = (d.value / total) * Math.PI * 2;
+                        const sweep = (d.size / total) * Math.PI * 2;
                         angle += sweep;
                         /* A single slice sweeps the full circle; an arc with
                            identical endpoints renders nothing, so draw a ring. */
@@ -73,7 +73,7 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
                                     key={d.name}
                                     cx={cx} cy={cy} r={r}
                                     fill="none"
-                                    stroke={PALETTE[i % PALETTE.length]}
+                                    stroke={colorOf(d)}
                                     strokeWidth={thickness}
                                 />
                             );
@@ -83,7 +83,7 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
                                 key={d.name}
                                 d={arcPath(cx, cy, r, start, angle)}
                                 fill="none"
-                                stroke={PALETTE[i % PALETTE.length]}
+                                stroke={colorOf(d)}
                                 strokeWidth={thickness}
                             />
                         );
@@ -99,14 +99,14 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
             </svg>
             {total > 0 && (
                 <div style={{ marginTop: 16 }}>
-                    {usable.map((d, i) => (
+                    {usable.map(d => (
                         <div key={d.name} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0' }}>
                             <span
                                 aria-hidden="true"
                                 style={{
                                     width: 12,
                                     height: 12,
-                                    background: PALETTE[i % PALETTE.length],
+                                    background: colorOf(d),
                                     display: 'inline-block'
                                 }}
                             />

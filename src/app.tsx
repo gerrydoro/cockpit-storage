@@ -4,7 +4,7 @@
  * Copyright (C) 2026 Red Hat, Inc.
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Page } from '@patternfly/react-core/dist/esm/components/Page/index.js';
 import { Spinner } from '@patternfly/react-core/dist/esm/components/Spinner/Spinner.js';
 import { Switch } from '@patternfly/react-core/dist/esm/components/Switch/Switch.js';
@@ -23,12 +23,16 @@ import '@patternfly/react-styles/css/components/Table/table.css';
 import cockpit from 'cockpit';
 
 import type { FileSystem, DirUsage, UsageEntry } from './gatherer.js';
-import { UsageCache } from './gatherer.js';
+import { UsageCache, cockpitRunner } from './gatherer.js';
+import { Trail } from './trail.js';
+
 import { Treemap } from './Treemap.jsx';
 import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
 import { FsPicker } from './FsPicker.jsx';
 import { formatSize } from './format.js';
+import { capped, levelData } from './chart.js';
+import { bytes, type Bytes } from './paths.js';
 
 const _ = cockpit.gettext;
 
@@ -37,34 +41,33 @@ const _ = cockpit.gettext;
 const DONUT_SLICES = 20;
 const TABLE_ROWS = 30;
 
-interface HistoryEntry {
-    mount: string;
-    path: string;
-}
+/* The per-session scan cache lives in state so that replacing it is what
+   reloads the effects below; the effect reads the value it depends on, so the
+   "reload" a Rescan causes is visible to React and to the hooks lint. */
+const newSession = () => new UsageCache(cockpitRunner());
 
 export const Application = () => {
-    const cache = useRef(new UsageCache());
+    const [session, setSession] = useState(newSession);
     const [fileSystems, setFileSystems] = useState<FileSystem[]>([]);
     const [fsLoading, setFsLoading] = useState(true);
     const [fsError, setFsError] = useState<string | null>(null);
 
-    const [history, setHistory] = useState<HistoryEntry[]>([]);
+    const [trail, setTrail] = useState(() => new Trail());
     const [dirUsage, setDirUsage] = useState<DirUsage | null>(null);
     const [dirLoading, setDirLoading] = useState(false);
     const [dirError, setDirError] = useState<string | null>(null);
 
     const [viewMode, setViewMode] = useState<'treemap' | 'donut'>('treemap');
     const [selected, setSelected] = useState<string | null>(null);
-    const [reloadKey, setReloadKey] = useState(0);
 
-    const current = history.length > 0 ? history[history.length - 1] : null;
+    const current = trail.current();
     const currentPath = current?.path ?? null;
 
-    /* load filesystem list on mount and whenever the cache is invalidated */
+    /* load filesystem list on mount and whenever the cache is replaced */
     useEffect(() => {
         let active = true;
         setFsLoading(true);
-        cache.current.getFileSystems()
+        session.getFileSystems()
                 .then(fs => {
                     if (!active)
                         return;
@@ -79,7 +82,7 @@ export const Application = () => {
                     setFsLoading(false);
                 });
         return () => { active = false };
-    }, [reloadKey]);
+    }, [session]);
 
     /* load directory usage when the current path changes. The `active` flag
        discards late responses so a slow scan of a previous directory cannot
@@ -95,7 +98,7 @@ export const Application = () => {
         setDirLoading(true);
         setDirError(null);
         setSelected(null);
-        cache.current.getDirectory(currentPath)
+        session.getDirectory(currentPath)
                 .then(usage => {
                     if (!active)
                         return;
@@ -111,57 +114,23 @@ export const Application = () => {
                     setDirLoading(false);
                 });
         return () => { active = false };
-    }, [currentPath, reloadKey]);
+    }, [currentPath, session]);
 
     /* Rescan drops every cached scan and reloads the visible level. */
-    const refresh = () => {
-        cache.current.clear();
-        setReloadKey(k => k + 1);
-    };
+    const refresh = () => setSession(newSession());
 
-    const enterFs = (mount: string) => {
-        setHistory([{ mount, path: mount }]);
-    };
+    const enterFs = (mount: string) => setTrail(Trail.open(mount));
+    const enterChild = (name: string) => setTrail(trail.openChild(name));
+    const navigateTo = (path: string) => setTrail(trail.goTo(path));
 
-    const enterChild = (name: string) => {
-        if (!current)
-            return;
-        const childPath = current.path === '/' ? '/' + name : current.path + '/' + name;
-        setHistory([...history, { mount: current.mount, path: childPath }]);
-    };
-
-    const navigateTo = (targetPath: string) => {
-        if (!current)
-            return;
-        const idx = history.findIndex(h => h.path === targetPath);
-        if (idx >= 0)
-            setHistory(history.slice(0, idx + 1));
-        else
-            setHistory([...history, { mount: current.mount, path: targetPath }]);
-    };
-
-    const goBack = () => setHistory(h => h.slice(0, -1));
-
-    const breadcrumbSegments = current
-        ? history.map(h => ({
-            label: h.path === h.mount
-                ? h.mount
-                : h.path.split('/').pop() ?? h.path,
-            path: h.path,
-        }))
-        : [];
+    const goBack = () => setTrail(trail.back());
 
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
-    const totalSize = dirUsage?.size ?? 0;
+    const totalSize: Bytes = dirUsage?.size ?? bytes(0);
 
-    /* aggregate everything past the slice cap into an "Other" slice so no
-       usage is hidden in the donut */
-    const donutData = entries.length > DONUT_SLICES
-        ? [
-            ...entries.slice(0, DONUT_SLICES).map(e => ({ name: e.name, value: e.size })),
-            { name: _("Other"), value: entries.slice(DONUT_SLICES).reduce((s, e) => s + e.size, 0) },
-        ]
-        : entries.map(e => ({ name: e.name, value: e.size }));
+    /* Both charts draw the same prepared list, so one level is one set of
+       colours and one aggregate whichever view you are in. */
+    const chartData = capped(levelData(entries), DONUT_SLICES, _("Other"));
 
     const itemCount = cockpit.ngettext("$0 item", "$0 items", entries.length).replace('$0', String(entries.length));
     const percent = (size: number) => (totalSize > 0 ? `${(size / totalSize * 100).toFixed(1)}%` : '0%');
@@ -213,7 +182,10 @@ export const Application = () => {
                     {current && (
                         <>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-                                <Breadcrumbs segments={breadcrumbSegments} onNavigate={navigateTo} />
+                                <Breadcrumbs
+                                    trail={current ? trail : null}
+                                    onNavigate={navigateTo}
+                                />
                                 <Switch
                                     id="view-mode-toggle"
                                     label={_("Donut view")}
@@ -235,12 +207,7 @@ export const Application = () => {
                                 viewMode === 'treemap'
                                     ? (
                                         <Treemap
-                                            data={entries.map(e => ({
-                                                name: e.name,
-                                                size: e.size,
-                                                isDir: e.isDir,
-                                            }))}
-                                            total={totalSize}
+                                            data={chartData}
                                             selected={selected}
                                             onSelect={(name) => {
                                                 const entry = entries.find(e => e.name === name);
@@ -254,7 +221,7 @@ export const Application = () => {
                                     )
                                     : (
                                         <RingChart
-                                            data={donutData}
+                                            data={chartData}
                                             centerLabel={formatSize(totalSize)}
                                             centerSub={itemCount}
                                         />

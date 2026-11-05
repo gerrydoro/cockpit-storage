@@ -33,7 +33,7 @@ COCKPIT_REPO_FILES = \
 	$(NULL)
 
 COCKPIT_REPO_URL = https://github.com/cockpit-project/cockpit.git
-COCKPIT_REPO_COMMIT = 124d811c4519312a43d1ab630c2d9f6ebbba43f7 # 370 + 18 commits
+COCKPIT_REPO_COMMIT = aa7920c58b2d7be013705412991eca8fa8839597 # 371 + 1 commits
 
 $(COCKPIT_REPO_FILES): $(COCKPIT_REPO_STAMP)
 COCKPIT_REPO_TREE = '$(strip $(COCKPIT_REPO_COMMIT))^{tree}'
@@ -187,7 +187,7 @@ check: prepare-check
 	test/common/run-tests ${RUN_TESTS_OPTIONS}
 
 # bundle and run the QUnit unit tests for the pure helpers in Node
-test/unit-tests.js: test/build-tests.js test/test-gatherer.js src/gatherer.ts src/layout.ts src/format.ts test/mock-cockpit.js
+test/unit-tests.js: test/build-tests.js test/test-gatherer.js test/test-trail.js src/gatherer.ts src/layout.ts src/format.ts src/paths.ts src/trail.ts test/mock-cockpit.js
 	node test/build-tests.js
 
 check-unit: test/unit-tests.js

@@ -4,12 +4,14 @@
  * Copyright (C) 2026 Red Hat, Inc.
  */
 
+import type { Bytes } from './paths.js';
+
 /* Large human readable byte count: bytes -> KiB/MiB/GiB/TiB. */
-export function formatSize(bytes: number): string {
-    if (!Number.isFinite(bytes) || bytes <= 0)
+export function formatSize(size: Bytes): string {
+    if (!Number.isFinite(size) || size <= 0)
         return '0 B';
     const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-    let value = bytes;
+    let value: number = size;
     let unit = 0;
     while (value >= 1024 && unit < units.length - 1) {
         value /= 1024;
