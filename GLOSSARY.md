@@ -30,9 +30,22 @@ introduce a new concept, add it here.
   `UsageEntry`.
 
 **Trail**
-: The stack of directories the user has descended through, from the Mount they
-  started at down to the current Level. Distinct from the Filesystem list: a
-  Trail is one drill-down session.
+: The chain of directories the user has walked into, from the **Mount** they
+  opened at the root down to the current **Level**. One trail is one drill-down
+  session; it is replaced when the user opens a filesystem or leaves for the
+  picker. Not the same thing as the **Filesystem** list, which is what the
+  trail starts from. A step is a directory *name*, never a path — allowing a
+  separator would make `back` drop two levels at once.
+
+**Location**
+: Where the user is right now: the **Mount** the trail started at, plus the
+  absolute **path** being displayed. `null` while they are still choosing a
+  filesystem.
+
+**Session**
+: The lifetime of one `UsageCache`. A Rescan replaces it, which is what drops
+  every cached **Scan**; it lives in React state so replacing it is the event
+  both loading effects depend on.
 
 ## Seams
 
@@ -43,6 +56,17 @@ introduce a new concept, add it here.
   `cockpitRunner` in production, `inMemoryRunner` in tests. Command failure
   comes back as `ok: false`, never as a rejection — that is a result, and a
   bridge failure is what rejects.
+
+**Trail (the seam)**
+: `Trail` is also the seam for navigation. The page keeps one trail in state
+  and calls commands on it; every command returns a new trail, so the page
+  re-renders on navigation without any React API appearing in the module. The
+  transition rules are therefore testable in Node.
+
+**paths.ts**
+: `joinPath`, `baseName`, `pathDepth`. The one home for "how do we build a
+  child path" and "how do we take one apart"; the trail and the gatherer both
+  answer through it, so the root special case exists once.
 
 ## Not used
 

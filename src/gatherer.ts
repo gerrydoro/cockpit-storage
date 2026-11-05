@@ -7,6 +7,8 @@
 import cockpit from 'cockpit';
 import type { SpawnOptions } from 'cockpit';
 
+import { joinPath, pathDepth } from './paths.js';
+
 /*
  * Data gathering for the disk-usage analyzer.
  *
@@ -148,10 +150,9 @@ export function filterFileSystems(df: FileSystem[], mounts: Map<string, { device
 
     /* Path depth, not string length: `/srv/data` (9 chars) is shallower than
      * `/media/pics` (11 chars) even though the shorter string wins on length. */
-    const depth = (mount: string) => mount.split('/').filter(Boolean).length;
     const result: FileSystem[] = [];
     for (const group of byDevice.values()) {
-        group.sort((a, b) => depth(a.mount) - depth(b.mount) || a.mount.length - b.mount.length);
+        group.sort((a, b) => pathDepth(a.mount) - pathDepth(b.mount) || a.mount.length - b.mount.length);
         result.push(group[0]);
     }
     result.sort((a, b) => (a.mount === '/' ? -1 : b.mount === '/' ? 1 : a.mount.localeCompare(b.mount)));
@@ -264,7 +265,7 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
             continue;
         children.push({
             name,
-            path: path === '/' ? '/' + name : path + '/' + name,
+            path: joinPath(path, name),
             size: entry.size,
             isDir: subdirs.has(name),
         });

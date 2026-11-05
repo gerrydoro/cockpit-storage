@@ -4,7 +4,7 @@
  * Copyright (C) 2026 Red Hat, Inc.
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Page } from '@patternfly/react-core/dist/esm/components/Page/index.js';
 import { Spinner } from '@patternfly/react-core/dist/esm/components/Spinner/Spinner.js';
 import { Switch } from '@patternfly/react-core/dist/esm/components/Switch/Switch.js';
@@ -24,6 +24,8 @@ import cockpit from 'cockpit';
 
 import type { FileSystem, DirUsage, UsageEntry } from './gatherer.js';
 import { UsageCache, cockpitRunner } from './gatherer.js';
+import type { TrailSegment } from './trail.js';
+import { Trail } from './trail.js';
 import { Treemap } from './Treemap.jsx';
 import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
@@ -37,34 +39,34 @@ const _ = cockpit.gettext;
 const DONUT_SLICES = 20;
 const TABLE_ROWS = 30;
 
-interface HistoryEntry {
-    mount: string;
-    path: string;
-}
+/* The per-session scan cache lives in state so that replacing it is what
+   reloads the effects below; the effect reads the value it depends on, so the
+   "reload" a Rescan causes is visible to React and to the hooks lint. */
+const newSession = () => new UsageCache(cockpitRunner());
 
 export const Application = () => {
-    const cache = useRef(new UsageCache(cockpitRunner()));
+    const [session, setSession] = useState(newSession);
     const [fileSystems, setFileSystems] = useState<FileSystem[]>([]);
     const [fsLoading, setFsLoading] = useState(true);
     const [fsError, setFsError] = useState<string | null>(null);
 
-    const [history, setHistory] = useState<HistoryEntry[]>([]);
+    const [trail, setTrail] = useState(() => new Trail());
     const [dirUsage, setDirUsage] = useState<DirUsage | null>(null);
     const [dirLoading, setDirLoading] = useState(false);
     const [dirError, setDirError] = useState<string | null>(null);
 
     const [viewMode, setViewMode] = useState<'treemap' | 'donut'>('treemap');
     const [selected, setSelected] = useState<string | null>(null);
-    const [reloadKey, setReloadKey] = useState(0);
 
-    const current = history.length > 0 ? history[history.length - 1] : null;
+    const current = trail.current();
     const currentPath = current?.path ?? null;
+    const breadcrumbSegments = trail.segments();
 
-    /* load filesystem list on mount and whenever the cache is invalidated */
+    /* load filesystem list on mount and whenever the cache is replaced */
     useEffect(() => {
         let active = true;
         setFsLoading(true);
-        cache.current.getFileSystems()
+        session.getFileSystems()
                 .then(fs => {
                     if (!active)
                         return;
@@ -79,7 +81,7 @@ export const Application = () => {
                     setFsLoading(false);
                 });
         return () => { active = false };
-    }, [reloadKey]);
+    }, [session]);
 
     /* load directory usage when the current path changes. The `active` flag
        discards late responses so a slow scan of a previous directory cannot
@@ -95,7 +97,7 @@ export const Application = () => {
         setDirLoading(true);
         setDirError(null);
         setSelected(null);
-        cache.current.getDirectory(currentPath)
+        session.getDirectory(currentPath)
                 .then(usage => {
                     if (!active)
                         return;
@@ -111,45 +113,15 @@ export const Application = () => {
                     setDirLoading(false);
                 });
         return () => { active = false };
-    }, [currentPath, reloadKey]);
+    }, [currentPath, session]);
 
     /* Rescan drops every cached scan and reloads the visible level. */
-    const refresh = () => {
-        cache.current.clear();
-        setReloadKey(k => k + 1);
-    };
+    const refresh = () => setSession(newSession());
 
-    const enterFs = (mount: string) => {
-        setHistory([{ mount, path: mount }]);
-    };
-
-    const enterChild = (name: string) => {
-        if (!current)
-            return;
-        const childPath = current.path === '/' ? '/' + name : current.path + '/' + name;
-        setHistory([...history, { mount: current.mount, path: childPath }]);
-    };
-
-    const navigateTo = (targetPath: string) => {
-        if (!current)
-            return;
-        const idx = history.findIndex(h => h.path === targetPath);
-        if (idx >= 0)
-            setHistory(history.slice(0, idx + 1));
-        else
-            setHistory([...history, { mount: current.mount, path: targetPath }]);
-    };
-
-    const goBack = () => setHistory(h => h.slice(0, -1));
-
-    const breadcrumbSegments = current
-        ? history.map(h => ({
-            label: h.path === h.mount
-                ? h.mount
-                : h.path.split('/').pop() ?? h.path,
-            path: h.path,
-        }))
-        : [];
+    const enterFs = (mount: string) => setTrail(Trail.open(mount));
+    const enterChild = (name: string) => setTrail(trail.openChild(name));
+    const navigateTo = (segment: TrailSegment) => setTrail(trail.goTo(segment));
+    const goBack = () => setTrail(trail.back());
 
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
     const totalSize = dirUsage?.size ?? 0;

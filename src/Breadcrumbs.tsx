@@ -7,14 +7,11 @@
 import React from 'react';
 import { Breadcrumb, BreadcrumbItem } from '@patternfly/react-core/dist/esm/components/Breadcrumb/index.js';
 
-interface BreadcrumbSegment {
-    label: string;
-    path: string;
-}
+import type { TrailSegment } from './trail.js';
 
 interface Props {
-    segments: BreadcrumbSegment[];
-    onNavigate: (path: string) => void;
+    segments: TrailSegment[];
+    onNavigate: (segment: TrailSegment) => void;
 }
 
 export const Breadcrumbs = ({ segments, onNavigate }: Props) => (
@@ -32,7 +29,7 @@ export const Breadcrumbs = ({ segments, onNavigate }: Props) => (
                                 href="#"
                                 onClick={e => {
                                     e.preventDefault();
-                                    onNavigate(seg.path);
+                                    onNavigate(seg);
                                 }}
                             >
                                 {seg.label}

@@ -41,10 +41,13 @@ Commands:
 
 ## Source layout
 
-- `src/index.tsx` — entry; `src/app.tsx` — page state/history/navigation
+- `src/index.tsx` — entry; `src/app.tsx` — page state; `src/trail.ts` — the
+  drill-down trail (mount + the chain of directories walked into), React-free
 - `src/gatherer.ts` — pure parsers (`parseMounts`, `parseDf`,
   `filterFileSystems`, `parseDu`, `buildDirUsage`) + the `CommandRunner` seam +
   `listFileSystems` / `scanDirectory` / `UsageCache` (per-session cache)
+- `src/paths.ts` — `joinPath` / `baseName` / `pathDepth`, shared by the trail
+  and the gatherer; the one home of the root-separator rule
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
 - `src/gatherer.ts` gathers through a `CommandRunner`, never through
   `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
