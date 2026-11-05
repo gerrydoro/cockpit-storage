@@ -108,24 +108,33 @@ QUnit.test('back ascends one level at a time', assert => {
 
 QUnit.test('a crumb click moves to that ancestor, dropping nothing before it', assert => {
     const trail = Trail.open('/').openChild('home').openChild('user').openChild('docs');
-    const segments = trail.segments();
+    const paths = trail.segments().map(s => s.path);
 
-    const jumped = trail.goTo(segments[1]);
+    const jumped = trail.goTo(paths[1]);
     assert.deepEqual(jumped.current(), { mount: '/', path: '/home' });
     assert.deepEqual(jumped.segments().map(s => s.path),
                      ['/', '/home'], 'the trail below the target is gone');
 
-    const root = trail.goTo(segments[0]);
+    const root = trail.goTo(paths[0]);
     assert.deepEqual(root.current(), { mount: '/', path: '/' });
     assert.deepEqual(root.segments().map(s => s.path), ['/']);
 });
 
 QUnit.test('clicking the crumb you are already on changes nothing', assert => {
     const trail = Trail.open('/mnt/backups').openChild('docs');
-    const here = trail.goTo(trail.segments()[1]);
+    const here = trail.goTo(trail.segments()[1].path);
 
     assert.deepEqual(here.current(), trail.current(), 'still where you were');
     assert.deepEqual(here.segments(), trail.segments());
+});
+
+QUnit.test('a path that is not on this trail goes nowhere', assert => {
+    /* the UI can only name a crumb this trail produced, so this is the guard
+       that branch exists for rather than a feature to rely on */
+    const trail = Trail.open('/').openChild('home');
+    const elsewhere = trail.goTo('/mnt/backups/docs');
+
+    assert.deepEqual(elsewhere.current(), trail.current(), 'unchanged');
 });
 
 QUnit.test('every command returns a new trail, so the page re-renders', assert => {
@@ -133,7 +142,7 @@ QUnit.test('every command returns a new trail, so the page re-renders', assert =
 
     assert.notEqual(trail.openChild('x'), trail);
     assert.notEqual(trail.back(), trail);
-    assert.notEqual(trail.goTo(trail.segments()[0]), trail);
+    assert.notEqual(trail.goTo(trail.segments()[0].path), trail);
     assert.notEqual(Trail.open('/'), trail);
 });
 

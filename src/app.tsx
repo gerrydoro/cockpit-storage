@@ -24,8 +24,8 @@ import cockpit from 'cockpit';
 
 import type { FileSystem, DirUsage, UsageEntry } from './gatherer.js';
 import { UsageCache, cockpitRunner } from './gatherer.js';
-import type { TrailSegment } from './trail.js';
 import { Trail } from './trail.js';
+
 import { Treemap } from './Treemap.jsx';
 import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
@@ -62,7 +62,6 @@ export const Application = () => {
 
     const current = trail.current();
     const currentPath = current?.path ?? null;
-    const breadcrumbSegments = trail.segments();
 
     /* load filesystem list on mount and whenever the cache is replaced */
     useEffect(() => {
@@ -122,7 +121,8 @@ export const Application = () => {
 
     const enterFs = (mount: string) => setTrail(Trail.open(mount));
     const enterChild = (name: string) => setTrail(trail.openChild(name));
-    const navigateTo = (segment: TrailSegment) => setTrail(trail.goTo(segment));
+    const navigateTo = (path: string) => setTrail(trail.goTo(path));
+
     const goBack = () => setTrail(trail.back());
 
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
@@ -182,7 +182,10 @@ export const Application = () => {
                     {current && (
                         <>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-                                <Breadcrumbs segments={breadcrumbSegments} onNavigate={navigateTo} />
+                                <Breadcrumbs
+                                    trail={current ? trail : null}
+                                    onNavigate={navigateTo}
+                                />
                                 <Switch
                                     id="view-mode-toggle"
                                     label={_("Donut view")}

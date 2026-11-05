@@ -88,14 +88,14 @@ export class Trail {
     /*
      * Jump to a crumb.
      *
-     * Takes the segment rather than a path string, so the call site can only
-     * name a crumb that is actually on this trail. The previous interface took
-     * any path and grew a branch for "target not visited", which no caller
-     * could ever reach -- an unvisited directory has no listing to descend
-     * into, only one this user already walked.
+     * `path` is always one of this trail's own crumbs -- the only thing that
+     * can name one is the crumb trail, which gets them from here. The previous
+     * interface accepted any path and grew a branch for "target not visited",
+     * which no caller could ever reach: an unvisited directory has no listing
+     * to descend into, only one this user already walked.
      */
-    goTo(segment: TrailSegment): Trail {
-        const index = this.paths().indexOf(segment.path);
+    goTo(path: string): Trail {
+        const index = this.paths().indexOf(path);
         if (index < 0)
             return this;
         return new Trail(this.mount, this.steps.slice(0, index));

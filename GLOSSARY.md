@@ -56,6 +56,12 @@ introduce a new concept, add it here.
   every cached **Scan**; it lives in React state so replacing it is the event
   both loading effects depend on.
 
+**Crumb**
+: One entry on the crumb trail: a **label** and a **path**. The label is the
+  **Mount** at the root and a directory name below it, which is the trail's to
+  answer and is tested with the rest of the navigation rules. `Breadcrumbs`
+  renders crumbs; it does not name them.
+
 ## Chart vocabulary
 
 **ChartDatum**

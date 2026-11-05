@@ -53,6 +53,8 @@ Commands:
   `formatSize` is a type error. `test/type-assertions.ts` pins that in the
   build.
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
+- `src/Breadcrumbs.tsx` — takes the **Trail** and renders it; crumb labelling is
+  the trail's job, not the page's.
 - `src/chart.ts` — the chart vocabulary: `ChartDatum`, the palette, the
   colour-slot rule, and turning a level's entries into chart data. Both charts
   read from it, so a level keeps its colours and its slice cap across views.
