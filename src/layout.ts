@@ -7,7 +7,7 @@
 import type { ChartDatum } from './chart.js';
 
 /*
- * Treemap layout (Bruls, Huizing, van Wijk).
+ * Geometry: what a chart needs to lay itself out.
  *
  * `place` hands back the very data it was given, with coordinates attached.
  * The old interface returned rectangles carrying only a value, which left
@@ -15,6 +15,12 @@ import type { ChartDatum } from './chart.js';
  * caller had to repeat this module's own filter and sort, and keep them
  * identical, or every rectangle silently picked up the wrong label. The join
  * now happens in the same module that performs the sort, and is tested there.
+ *
+ * The ring chart's arcs are here for the same reason. They are pure
+ * trigonometry with one degenerate case — a sweep covering the whole circle
+ * has identical endpoints, and an SVG arc with identical endpoints draws
+ * nothing — which is a rule about the shape, not about how to render it. Both
+ * charts' geometry therefore runs in Node under its own tests.
  */
 
 export interface TreemapRect {
@@ -153,4 +159,38 @@ export function place(
         placed.push({ ...sorted[i], x: rect.x, y: rect.y, w: rect.w, h: rect.h });
     }
     return placed;
+}
+
+/* ---- the ring chart's arcs ---- */
+
+/*
+ * Is `sweep` a whole circle? A slice that big cannot be drawn as an arc: its
+ * end lands on its start, and SVG drops an arc whose endpoints coincide. The
+ * caller draws a <circle> for that case instead.
+ *
+ * The epsilon is what makes the boundary a rule rather than a coincidence.
+ * Sweeps are accumulated by adding each slice's share of 2π, so a full turn
+ * comes back as 2π ± the last addition's own rounding error, which is rarely
+ * exactly zero.
+ */
+export function isFullCircle(sweep: number): boolean {
+    return sweep >= Math.PI * 2 - 1e-6;
+}
+
+/*
+ * The SVG path for the arc swept from `start` to `end` at radius `r` around
+ * (cx, cy). Angles are radians from the positive x-axis, which is where the
+ * caller starts accumulating them.
+ *
+ * SVG has two arcs between any two points; `large-arc-flag` says which one we
+ * want, and it flips exactly at a half turn. Getting it wrong draws a slice
+ * that is the shape of the slice next to it.
+ */
+export function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
+    const large = end - start > Math.PI ? 1 : 0;
+    const x1 = cx + r * Math.cos(start);
+    const y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
 }

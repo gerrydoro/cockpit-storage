@@ -7,7 +7,7 @@
 import cockpit from 'cockpit';
 import type { SpawnOptions } from 'cockpit';
 
-import { joinPath, pathDepth, bytes, kibToBytes, type Bytes } from './paths.js';
+import { pathDepth, bytes, kibToBytes, type Bytes } from './paths.js';
 
 /*
  * Data gathering for the disk-usage analyzer.
@@ -65,15 +65,15 @@ export interface FileSystem {
     capacity: number; // percentage 0-100
 }
 
+/* The child's name, never its path: a Level is one directory, and where that
+   directory is is what the caller already knows when it asks for the Level. */
 export interface UsageEntry {
     name: string;
-    path: string;
     size: Bytes; // disk usage in bytes
     isDir: boolean;
 }
 
 export interface DirUsage {
-    path: string;
     size: Bytes; // total disk usage of this directory in bytes
     entries: UsageEntry[];
     complete: boolean; // false if `du` errored (e.g. unreadable subdirectories)
@@ -241,15 +241,15 @@ export async function listFileSystems(runner: CommandRunner): Promise<FileSystem
 }
 
 /*
- * Build the direct children of `path` from `du -a -B1 -d 1` output plus the
- * set of subdirectory names reported by `find`. Split out from
- * `scanDirectory` so the path/total/isDir logic can be unit-tested without a
+ * Build the direct children of one directory from `du -a -B1 -d 1` output plus
+ * the set of subdirectory names reported by `find`. Split out from
+ * `scanDirectory` so the name/total/isDir logic can be unit-tested without a
  * cockpit bridge.
  *
  * `complete` is false when either command errored (e.g. unreadable
  * subdirectories), which the UI surfaces as a warning.
  */
-export function buildDirUsage(path: string, duText: string, subdirText: string, complete: boolean): DirUsage {
+export function buildDirUsage(duText: string, subdirText: string, complete: boolean): DirUsage {
     const entries = parseDu(duText);
     const subdirs = new Set(subdirText.split('\n').filter(Boolean));
 
@@ -266,7 +266,6 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
             continue;
         children.push({
             name,
-            path: joinPath(path, name),
             size: entry.size,
             isDir: subdirs.has(name),
         });
@@ -275,7 +274,7 @@ export function buildDirUsage(path: string, duText: string, subdirText: string, 
     children.sort((a, b) => b.size - a.size);
     /* Fall back to summing the children if `du` omitted the `.` total. */
     const fallback: Bytes = children.reduce((s, c) => (s + c.size) as Bytes, bytes(0));
-    return { path, size: total || fallback, entries: children, complete };
+    return { size: total || fallback, entries: children, complete };
 }
 
 /*
@@ -288,7 +287,7 @@ export async function scanDirectory(path: string, runner: CommandRunner): Promis
         runner.run(['find', '.', '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '-printf', '%f\n'], { directory: path }),
     ]);
 
-    return buildDirUsage(path, duResult.output, findResult.output, duResult.ok && findResult.ok);
+    return buildDirUsage(duResult.output, findResult.output, duResult.ok && findResult.ok);
 }
 
 /*

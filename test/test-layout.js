@@ -10,7 +10,7 @@
 
 /* global QUnit */
 
-import { squarify, place } from '../src/layout.js';
+import { squarify, place, arcPath, isFullCircle } from '../src/layout.js';
 import { colorSlots, levelData } from '../src/chart.js';
 
 /* ---- squarify: the geometry ---- */
@@ -44,9 +44,9 @@ QUnit.test('drops non-positive values and handles empty input', assert => {
 QUnit.module('place');
 
 const data = levelData([
-    { name: 'docs', path: '/docs', size: 2048, isDir: true },
-    { name: 'readme.txt', path: '/readme.txt', size: 1024, isDir: false },
-    { name: 'z-file', path: '/z-file', size: 256, isDir: true },
+    { name: 'docs', size: 2048, isDir: true },
+    { name: 'readme.txt', size: 1024, isDir: false },
+    { name: 'z-file', size: 256, isDir: true },
 ]);
 
 QUnit.test('hands back the data it was given, with a rectangle on each', assert => {
@@ -86,8 +86,8 @@ QUnit.test('the mapping cannot be shifted by a caller filtering its own data', a
 
 QUnit.test('drops zero-sized data rather than drawing an empty rectangle', assert => {
     const withEmpty = levelData([
-        { name: 'empty', path: '/empty', size: 0, isDir: true },
-        { name: 'docs', path: '/docs', size: 2048, isDir: true },
+        { name: 'empty', size: 0, isDir: true },
+        { name: 'docs', size: 2048, isDir: true },
     ]);
 
     const placed = place(withEmpty, 0, 0, 100, 100);
@@ -115,4 +115,95 @@ QUnit.test('the caller\'s data is left untouched', assert => {
     const before = data.map(d => ({ ...d }));
     place(data, 0, 0, 100, 100);
     assert.deepEqual(data, before, 'placement copies rather than sorting in place');
+});
+
+/* ---- arcPath: the ring chart's geometry ---- */
+
+QUnit.module('arcPath');
+
+/* the ring chart starts accumulating angles at twelve o'clock and sweeps
+   clockwise, so a slice's arc begins where the previous slice's ended */
+const endpoints = (path) => {
+    const m = path.match(/^M (\S+) (\S+) A \S+ \S+ 0 [01] 1 (\S+) (\S+)$/);
+    return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+};
+
+QUnit.test('draws one arc from the start angle to the end angle', assert => {
+    /* a quarter turn from twelve o'clock, on a 40-radius ring centred at
+       (100, 100): up to twelve, across to three */
+    assert.equal(arcPath(100, 100, 40, -Math.PI / 2, 0), 'M 100 60 A 40 40 0 0 1 140 100');
+});
+
+QUnit.test('goes the long way round only past a half turn', assert => {
+    /* the regression: SVG takes the short arc between two points unless told
+       otherwise, so a slice wider than a half turn would be drawn as its
+       complement -- the shape of the slice next to it */
+    const half = arcPath(100, 100, 40, 0, Math.PI);
+    assert.ok(half.includes('A 40 40 0 0 1'), 'a half turn is the short arc');
+
+    const wider = arcPath(100, 100, 40, 0, Math.PI + 0.1);
+    assert.ok(wider.includes('A 40 40 0 1 1'), 'past a half turn the flag flips');
+
+    const [x1, y1, x2, y2] = endpoints(half);
+    assert.equal(x1, 140, 'the arc starts at three o\'clock');
+    assert.equal(y1, 100, 'level with the centre');
+    assert.equal(x2, 60, 'and ends level on the far side');
+    assert.equal(y2, 100, 'having gone the short way, through six o\'clock');
+});
+
+QUnit.test('slices meet end to end, so the ring closes', assert => {
+    /* a gap or an overlap between two arcs leaves a visible seam between two
+       colours, and the flags only mean anything if each arc continues the last */
+    const shares = [0.5, 0.25, 0.125, 0.125];
+    let angle = -Math.PI / 2;
+    let previous = null;
+
+    for (const share of shares) {
+        const start = angle;
+        angle += share * Math.PI * 2;
+        const [x1, y1, x2, y2] = endpoints(arcPath(100, 100, 40, start, angle));
+
+        if (previous)
+            assert.deepEqual([x1, y1], previous, `${share} of the ring starts where the previous ended`);
+        else
+            assert.ok(Math.abs(x1 - 100) < 1e-9 && Math.abs(y1 - 60) < 1e-9,
+                      'the ring is opened at twelve o\'clock');
+
+        previous = [x2, y2];
+    }
+
+    assert.ok(Math.abs(previous[0] - 100) < 1e-9 && Math.abs(previous[1] - 60) < 1e-9,
+              'and the last slice closes it');
+});
+
+QUnit.test('a slice owning the whole ring degenerates to a point', assert => {
+    /* this is why one slice has to be drawn as a <circle>: an arc whose start
+       and end coincide is dropped by SVG, so a directory holding everything
+       would render as nothing at all */
+    const [x1, y1, x2, y2] = endpoints(arcPath(100, 100, 40, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2));
+
+    assert.ok(Math.abs(x1 - x2) < 1e-9 && Math.abs(y1 - y2) < 1e-9,
+              'the endpoints coincide');
+});
+
+/* ---- isFullCircle ---- */
+
+QUnit.module('isFullCircle');
+
+QUnit.test('a turn built from shares still reads as a whole circle', assert => {
+    /* a full turn is the sum of the slices' shares, and those shares add to
+       one only as well as floating point allows -- so the comparison is a
+       tolerance rather than an equality with two pi */
+    const shares = [0.5, 0.25, 0.125, 0.125];
+    const sweep = shares.reduce((total, share) => total + share * Math.PI * 2, 0);
+
+    assert.equal(isFullCircle(sweep), true, 'one slice owning the directory is a ring');
+    assert.equal(isFullCircle(Math.PI * 2 - 1e-9), true, 'a hair short of two pi still counts');
+    assert.equal(isFullCircle(Math.PI * 2 - 1e-3), false, 'but a visible shortfall does not');
+});
+
+QUnit.test('anything short of a whole circle is an arc', assert => {
+    assert.equal(isFullCircle(Math.PI), false, 'a half turn is the biggest arc');
+    assert.equal(isFullCircle(Math.PI * 2 - 1e-3), false, 'a visible shortfall of the ring');
+    assert.equal(isFullCircle(0), false, 'no slice at all');
 });

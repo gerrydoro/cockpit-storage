@@ -12,7 +12,7 @@
 
 import { colorSlots, paletteColor, levelData, capped, PALETTE_SLOTS } from '../src/chart.js';
 
-const entry = (name, size, isDir = true) => ({ name, path: name, size, isDir });
+const entry = (name, size, isDir = true) => ({ name, size, isDir });
 
 /* ---- the palette ---- */
 

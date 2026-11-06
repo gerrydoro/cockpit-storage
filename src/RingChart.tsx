@@ -5,33 +5,24 @@
  */
 
 import React from 'react';
+import { arcPath, isFullCircle } from './layout.js';
 import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 
 interface Props {
     data: ChartDatum[];
     centerLabel: string;
     centerSub?: string;
-    size?: number;
-    thickness?: number;
 }
+
+/* The ring scales to its container, so these are only the coordinate system
+   the arcs are computed in -- never sizes a caller has to pass. */
+const SIZE = 260;
+const THICKNESS = 40;
 
 /* Colour slots are decided by chart.js, so the treemap and the ring chart
    agree on which directory is which colour. */
 
-/* Two points closer than this are treated as identical; an SVG arc whose
-   endpoints coincide is dropped entirely, so a 100% slice needs a <circle>. */
-const FULL_CIRCLE_EPSILON = 1e-6;
-
-function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
-    const large = end - start > Math.PI ? 1 : 0;
-    const x1 = cx + r * Math.cos(start);
-    const y1 = cy + r * Math.sin(start);
-    const x2 = cx + r * Math.cos(end);
-    const y2 = cy + r * Math.sin(end);
-    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
-}
-
-export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness = 40 }: Props) => {
+export const RingChart = ({ data, centerLabel, centerSub }: Props) => {
     /* Slots come from the data as given, exactly as the treemap takes them:
        a zero-size datum is skipped here but does not shift anyone else's
        colour. */
@@ -39,9 +30,9 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
     const colorOf = (datum: ChartDatum) => paletteColor(slots.get(datum.name) ?? 0);
     const usable = data.filter(d => d.size > 0);
     const total = usable.reduce((s, d) => s + d.size, 0);
-    const cx = size / 2;
-    const cy = size / 2;
-    const r = size / 2 - thickness / 2;
+    const cx = SIZE / 2;
+    const cy = SIZE / 2;
+    const r = SIZE / 2 - THICKNESS / 2;
     const ariaLabel = total > 0
         ? `${centerLabel}${centerSub ? `, ${centerSub}` : ''}`
         : centerLabel;
@@ -51,30 +42,30 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
     return (
         <div style={{ textAlign: 'center' }}>
             <svg
-                viewBox={`0 0 ${size} ${size}`}
-                style={{ width: '100%', maxWidth: size, height: 'auto' }}
+                viewBox={`0 0 ${SIZE} ${SIZE}`}
+                style={{ width: '100%', maxWidth: SIZE, height: 'auto' }}
                 role="img"
                 aria-label={ariaLabel}
                 data-testid="donut"
             >
                 {total <= 0
                     ? (
-                        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pf-t--global--border--color--default)" strokeWidth={thickness} />
+                        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--pf-t--global--border--color--default)" strokeWidth={THICKNESS} />
                     )
                     : usable.map((d) => {
                         const start = angle;
                         const sweep = (d.size / total) * Math.PI * 2;
                         angle += sweep;
-                        /* A single slice sweeps the full circle; an arc with
-                           identical endpoints renders nothing, so draw a ring. */
-                        if (sweep >= Math.PI * 2 - FULL_CIRCLE_EPSILON) {
+                        /* A slice that sweeps the whole circle becomes a ring:
+                           an arc with identical endpoints renders nothing. */
+                        if (isFullCircle(sweep)) {
                             return (
                                 <circle
                                     key={d.name}
                                     cx={cx} cy={cy} r={r}
                                     fill="none"
                                     stroke={colorOf(d)}
-                                    strokeWidth={thickness}
+                                    strokeWidth={THICKNESS}
                                 />
                             );
                         }
@@ -84,7 +75,7 @@ export const RingChart = ({ data, centerLabel, centerSub, size = 260, thickness 
                                 d={arcPath(cx, cy, r, start, angle)}
                                 fill="none"
                                 stroke={colorOf(d)}
-                                strokeWidth={thickness}
+                                strokeWidth={THICKNESS}
                             />
                         );
                     })}
