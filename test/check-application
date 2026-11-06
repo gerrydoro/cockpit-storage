@@ -12,6 +12,24 @@ import testlib
 # way that influences other tests.
 @testlib.nondestructive
 class TestApplication(testlib.MachineCase):
+    def drillInto(self, name):
+        """Walk from the filesystem picker into the directory `name` under /."""
+        b = self.browser
+
+        b.wait_visible("[data-testid=filesystem]")
+        b.click("[data-testid=filesystem]")
+        b.wait_visible("[data-testid=usage-table]")
+
+        # the table lists a directory by its name only, so click the row whose
+        # text is exactly that name rather than the first that merely contains it
+        b.call_js_func(
+            'name => { const row = [...document.querySelectorAll("[data-testid=usage-table] button")]'
+            '.find(button => button.textContent.trim() === name);'
+            'row.click(); return row.textContent; }',
+            name)
+        b.wait_text("[data-testid=storage-title]", "/" + name)
+        b.wait_visible("[data-testid=treemap]")
+
     def testBasic(self):
         b = self.browser
 
@@ -49,6 +67,93 @@ class TestApplication(testlib.MachineCase):
         b.click("#display-language-modal button.pf-m-primary")
         b.wait_visible("#content")
         b.wait_text("#host-apps a[href='/storage']", "Speicher")
+
+    def testDirectoryWithMoreChildrenThanTheCap(self):
+        b = self.browser
+
+        # Built here rather than borrowed from the VM: a directory with more
+        # children than the visualisation cap has to exist for the cap to apply,
+        # and which directory that is would otherwise depend on the image.
+        directory = self.machine.execute("mktemp -d /tmp/cockpit-storage-test.XXXXXX").strip()
+        self.addCleanup(self.machine.execute, "rm -rf " + directory)
+        self.machine.execute(f"for i in $(seq 0 25); do mkdir {directory}/dir-$i; done")
+
+        self.login_and_go("/storage")
+        self.drillInto("tmp")
+
+        # the table is the uncapped view of the same level, so it is what proves
+        # there really were more children than the cap
+        rows = b.call_js_func('sel => document.querySelectorAll(sel).length',
+                              "[data-testid=usage-table] tbody tr")
+        self.assertGreaterEqual(rows, 21, "the fixture directory has more children than the cap")
+
+        # ... and the treemap drew no more than the cap plus its aggregate
+        b.wait_js_func('sel => document.querySelectorAll(sel).length <= 21',
+                       "[data-testid=treemap-cell]")
+        cells = b.call_js_func('sel => document.querySelectorAll(sel).length',
+                               "[data-testid=treemap-cell]")
+
+        # the aggregate exists, is named, and is not a button: there is no single
+        # directory behind it to descend into
+        b.wait_visible("[data-testid=treemap-cell][aria-label^='Other,']")
+        b.wait_not_attr("[data-testid=treemap-cell][aria-label^='Other,']", "role", "button")
+        b.call_js_func(
+            'sel => { const cell = [...document.querySelectorAll(sel)]'
+            '.find(c => c.getAttribute("aria-label").startsWith("Other"));'
+            'cell.click(); return cell.getAttribute("aria-label"); }',
+            "[data-testid=treemap-cell]")
+
+        # clicking the aggregate went nowhere: there is no directory behind it
+        b.wait_text("[data-testid=storage-title]", "/tmp")
+
+        # and the donut draws one slice per treemap cell -- the same level, the
+        # same cap, whichever chart you look through it with
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=donut]")
+        b.wait_count("[data-testid=donut] path, [data-testid=donut] circle", cells)
+
+    def testChartsGiveOneDirectoryOneColour(self):
+        b = self.browser
+
+        # /var always has children, whatever the image looks like
+        self.login_and_go("/storage")
+        self.drillInto("var")
+
+        # one level, one colour: whichever chart you look through it with
+        treemap = b.call_js_func(
+            'sel => [...document.querySelectorAll(sel)].map(cell => ['
+            'cell.getAttribute("aria-label").split(", ")[0],'
+            'getComputedStyle(cell.querySelector("rect")).fill])',
+            "[data-testid=treemap-cell]")
+
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=donut]")
+        donut = b.call_js_func(
+            'sel => [...document.querySelectorAll(sel)].map(slice => getComputedStyle(slice).stroke)',
+            "[data-testid=donut] path, [data-testid=donut] circle")
+
+        self.assertGreater(len(treemap), 1, "the level has several children to colour")
+        self.assertEqual(len(donut), len(treemap), "the donut draws the same slices as the treemap")
+        for name, fill in treemap:
+            self.assertIn(fill, donut, f"{name} is the same colour in both views")
+
+    def testRescanOfADirectoryBelowTheRoot(self):
+        b = self.browser
+
+        self.login_and_go("/storage")
+        self.drillInto("tmp")
+
+        # rescanning replaces the session cache; the level being looked at must
+        # survive that, and the new scan must be of the same directory
+        b.click("[data-testid=rescan]")
+        b.wait_text("[data-testid=storage-title]", "/tmp")
+        b.wait_visible("[data-testid=treemap]")
+        b.wait_visible("[data-testid=usage-table]")
+
+        # drilling back up still works afterwards, i.e. the trail survived too
+        b.click("button:contains(Back)")
+        b.wait_text("[data-testid=storage-title]", "/")
+        b.wait_visible("[data-testid=filesystem]")
 
 
 if __name__ == '__main__':
