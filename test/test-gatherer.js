@@ -191,9 +191,8 @@ const DU = [
 ].join('\n');
 
 QUnit.test('builds children, marks directories and reads the total', assert => {
-    const usage = buildDirUsage('/', DU, 'docs\n', true);
+    const usage = buildDirUsage(DU, 'docs\n', true);
 
-    assert.equal(usage.path, '/', 'path is preserved');
     assert.equal(usage.size, 4096, 'directory total comes from the `.` record');
     assert.equal(usage.complete, true);
     assert.deepEqual(usage.entries.map(e => e.name), ['docs', 'readme.txt', 'z-file'],
@@ -201,28 +200,41 @@ QUnit.test('builds children, marks directories and reads the total', assert => {
 
     const docs = usage.entries.find(e => e.name === 'docs');
     assert.equal(docs.isDir, true, 'subdirectory from find is flagged as a directory');
-    assert.equal(docs.path, '/docs', 'child path is joined onto the parent');
     assert.equal(docs.size, 2048);
 
     const readme = usage.entries.find(e => e.name === 'readme.txt');
     assert.equal(readme.isDir, false, 'plain file is not a directory');
-    assert.equal(readme.path, '/readme.txt');
 });
 
-QUnit.test('joins nested paths without doubling separators', assert => {
-    const usage = buildDirUsage('/home/user', DU, 'docs\n', true);
-    const docs = usage.entries.find(e => e.name === 'docs');
-    assert.equal(docs.path, '/home/user/docs');
+/*
+ * A child is named by `du`'s relative output and nothing else: which directory
+ * it is in is what the caller already knew when it asked for this Level, so no
+ * entry carries a path and the two interfaces cannot disagree about one.
+ */
+
+QUnit.test('a Level knows only its children\'s names, not their paths', assert => {
+    const usage = buildDirUsage(DU, 'docs\n', true);
+
+    assert.deepEqual(Object.keys(usage.entries[0]).sort(), ['isDir', 'name', 'size'],
+                     'a child is a name, a size and a flag -- nothing about where it lives');
+});
+
+QUnit.test('strips du\'s ./ prefix and refuses anything outside the level', assert => {
+    const du = ['2048\t.', '1024\t./docs', '512\t../outside', ''].join('\n');
+    const usage = buildDirUsage(du, 'docs\n', true);
+
+    assert.deepEqual(usage.entries.map(e => e.name), ['docs'],
+                     'the ./ prefix is stripped and ../ is not a child of this level');
 });
 
 QUnit.test('falls back to summing children when du omits the total', assert => {
     const du = ['2048\t./docs', '1024\t./readme.txt', ''].join('\n');
-    const usage = buildDirUsage('/', du, 'docs\n', true);
+    const usage = buildDirUsage(du, 'docs\n', true);
     assert.equal(usage.size, 3072, 'total is the sum of the children');
 });
 
 QUnit.test('propagates the complete flag from the command runners', assert => {
-    const usage = buildDirUsage('/', DU, 'docs\n', false);
+    const usage = buildDirUsage(DU, 'docs\n', false);
     assert.equal(usage.complete, false, 'a failed command is surfaced to the UI');
 });
 
@@ -312,18 +324,15 @@ QUnit.test('runs du and find, then joins the output into a level', async assert 
     });
 
     const usage = await scanDirectory('/', runner);
-    assert.equal(usage.path, '/');
     assert.equal(usage.size, 4096, 'total from the `.` record');
     assert.equal(usage.complete, true);
 
     assert.deepEqual(usage.entries.map(e => e.name), ['docs', 'readme.txt', 'z-file']);
     const docs = usage.entries.find(e => e.name === 'docs');
     assert.equal(docs.isDir, true, 'find marked it as a directory');
-    assert.equal(docs.path, '/docs', 'du output is relative, so the path is rejoined');
 
     const readme = usage.entries.find(e => e.name === 'readme.txt');
     assert.equal(readme.isDir, false, 'a file reported by du but not by find');
-    assert.equal(readme.path, '/readme.txt');
 });
 
 QUnit.test('scans the directory it is asked to, not the working directory', async assert => {
@@ -378,12 +387,18 @@ QUnit.test('falls back to summing children when du omits the total', async asser
     assert.equal(usage.size, 1536, 'the `.` record was missing');
 });
 
-QUnit.test('does not double the root separator when joining', async assert => {
+QUnit.test('the scanned directory is not part of the level it returns', async assert => {
+    /* du reports every child relative to `.`; the level is the children, and
+       where they live is the path the caller scanned -- keeping it in the
+       result as well gave two interfaces one answer to disagree about */
     const runner = runnerWith(DF, MOUNTS, {
-        '/': { du: '2048\t.\n1024\t./docs\n', find: 'docs\n' },
+        '/': { du: ROOT_DU, find: 'docs\n' },
     });
     const usage = await scanDirectory('/', runner);
-    assert.equal(usage.entries[0].path, '/docs', 'not //docs');
+
+    assert.deepEqual(usage.entries.map(e => e.name), ['docs', 'readme.txt', 'z-file']);
+    assert.equal(Object.keys(usage).includes('path'), false,
+                 'the result carries no path of its own');
 });
 
 /* ---- UsageCache ---- */

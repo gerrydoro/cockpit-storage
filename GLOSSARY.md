@@ -35,8 +35,10 @@ introduce a new concept, add it here.
   nothing stopped a block count reaching `formatSize`.
 
 **Entry**
-: One child of a Level: a name, a path, a size, and whether it is a directory.
-  `UsageEntry`.
+: One child of a Level: a name, a size, and whether it is a directory.
+  `UsageEntry`. A name is all an Entry carries about where it lives: which
+  directory it is in is what the caller already knew when it asked for the
+  Level, so the two answers cannot drift apart.
 
 **Trail**
 : The chain of directories the user has walked into, from the **Mount** they
@@ -80,6 +82,14 @@ introduce a new concept, add it here.
 : The aggregate of everything past the slice cap, drawn as one block named
   "Other". It keeps the size it is standing in for, and is never navigable
   because there is no single directory to descend into.
+
+**Arc**
+: One slice of the ring chart: the SVG path swept from a start angle to an end
+  angle at a radius, which is `arcPath` in `src/layout.ts`. A sweep covering
+  the whole circle is not an arc — its endpoints coincide and SVG drops it — so
+  that slice is drawn as a `<circle>` instead. `isFullCircle` is the rule for
+  which is which, and the reason it is a tolerance rather than an equality is
+  in its comment.
 
 ## Seams
 

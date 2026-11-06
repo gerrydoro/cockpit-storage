@@ -78,7 +78,7 @@ const DU = [
 QUnit.module('buildDirUsage units');
 
 QUnit.test('a level and its entries come out in bytes', assert => {
-    const usage = buildDirUsage('/home/user', DU, 'docs\n', true);
+    const usage = buildDirUsage(DU, 'docs\n', true);
 
     assert.equal(usage.size, 1073741824, 'one GiB, as du reported it');
     assert.equal(usage.entries[0].size, 536870912, 'half a GiB');
@@ -87,7 +87,7 @@ QUnit.test('a level and its entries come out in bytes', assert => {
 
 QUnit.test('the fallback sum is still in bytes', assert => {
     const noTotal = ['536870912\t./docs', '268435456\t./readme.txt', ''].join('\n');
-    const usage = buildDirUsage('/', noTotal, 'docs\n', true);
+    const usage = buildDirUsage(noTotal, 'docs\n', true);
 
     assert.equal(usage.size, 805306368, 'the children sum without being mis-scaled');
 });
