@@ -92,7 +92,6 @@ introduce a new concept, add it here.
   in its comment.
 
 ## Seams
-
 **CommandRunner**
 : The seam this module gathers through. Everything that needs the outside world
   asks a runner to `run(args, options)` or `read(path)`; nothing names
@@ -111,6 +110,30 @@ introduce a new concept, add it here.
 : `joinPath`, `baseName`, `pathDepth`. The one home for "how do we build a
   child path" and "how do we take one apart"; the trail and the gatherer both
   answer through it, so the root special case exists once.
+
+**The chart's box**
+: The rectangle a chart draws into, in the pixels it is drawn in. The page
+  sizes it in CSS and `useElementSize` reports what the browser made of it; the
+  charts lay themselves out in that box (`place` tiles it, the ring takes its
+  shorter side) rather than in a fixed coordinate system scaled to fit, which is
+  what made a treemap's shape depend on the size of the window.
+
+**.ct-page-fill**
+: Cockpit's contract for "this page fills the shell": the class on the page's
+  root element is what `pkg/lib/page.scss` looks for to give the page and its
+  main container the full height of the sheet. It lives in `src/index.html`,
+  which no test reads, so `test/check-application` asserts the frame it produces
+  fills the sheet.
+
+**The page's grid**
+: The other half of filling the sheet, and the reason `.storage-card` is not
+  enough on its own: from 75rem up, PatternFly lays a Page out as
+  `"header header" "sidebar main"` with `grid-template-columns: <sidebar width>
+  1fr`, whether or not the page renders a sidebar. This module renders none, so
+  `src/app.scss` resets the grid to `"header" "main"` / `1fr`; without that
+  reset the frame is 18.125rem narrower than the sheet it should fill. The
+  reset is scoped with `:not(:has(.pf-v6-c-page__sidebar))` so a page that does
+  render a sidebar keeps PF's grid.
 
 ## Not used
 

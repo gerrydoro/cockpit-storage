@@ -68,6 +68,81 @@ class TestApplication(testlib.MachineCase):
         b.wait_visible("#content")
         b.wait_text("#host-apps a[href='/storage']", "Speicher")
 
+    def testTheFrameFillsTheSheet(self):
+        b = self.browser
+
+        # Cockpit's contract for a page that fills the shell is .ct-page-fill on
+        # the page's root element (see pkg/lib/page.scss): without it the page's
+        # frame stops at whatever height its content happens to be, which left
+        # this module a small box with the rest of the sheet empty. Every other
+        # Cockpit page fills it.
+        self.login_and_go("/storage")
+        b.wait_visible("[data-testid=storage-title]")
+        b.wait_visible("[data-testid=treemap]")
+
+        def height(selector):
+            return b.call_js_func(
+                "sel => Math.round(document.querySelector(sel).getBoundingClientRect().height)",
+                selector)
+
+        sheet = b.call_js_func("() => innerHeight")
+        frame = height(".pf-v6-c-page__main-container")
+        card = height(".pf-v6-c-card")
+        chart = height(".treemap")
+
+        # the sheet's own inset is 24px, so a filling frame stops one page inset
+        # from the bottom rather than wherever the content happened to end
+        self.assertGreater(frame, sheet - 32, "the frame reaches the bottom of the sheet")
+        self.assertGreater(card, frame - 16, "the card fills the frame")
+        self.assertGreater(chart, 200, "the chart grows into the room the card has")
+
+        # ...and the same across the page: PatternFly 6 lays a page out with a
+        # column for a page sidebar from 75rem up ("header header" / "sidebar
+        # main", grid-template-columns: <sidebar width> 1fr) whether or not the
+        # page renders one, which left this module 18.125rem of empty sheet
+        # beside a frame that otherwise filled. The frame spans the sheet
+        # because this module has no page sidebar to reserve a column for.
+        width = b.call_js_func(
+            "sel => Math.round(document.querySelector(sel).getBoundingClientRect().width)",
+            ".pf-v6-c-page__main-container")
+        sheetWidth = b.call_js_func("() => innerWidth")
+        self.assertGreater(width, sheetWidth - 96,
+                           "the frame spans the sheet from side to side")
+        self.assertLess(width - b.call_js_func(
+            "sel => Math.round(document.querySelector(sel).getBoundingClientRect().width)",
+            ".pf-v6-c-card"), 32,
+                        "the card spans the frame from side to side")
+        # and nothing beside the frame is scrolled to or clipped
+        self.assertEqual(b.call_js_func("() => document.documentElement.scrollWidth"),
+                         b.call_js_func("() => innerWidth"),
+                         "the page does not scroll sideways")
+
+        # and the treemap is laid out in the pixels it is drawn in rather than
+        # into a fixed box that is scaled to fit
+        viewBox = b.call_js_func(
+            "sel => document.querySelector(sel).getAttribute('viewBox')",
+            '[data-testid="treemap"]')
+        box = b.call_js_func(
+            "sel => { const r = document.querySelector(sel).getBoundingClientRect();"
+            " return [Math.round(r.width), Math.round(r.height)]; }",
+            '[data-testid="treemap"]')
+        self.assertEqual(viewBox, f"0 0 {box[0]} {box[1]}",
+                         "the treemap's layout box is the box it is drawn in")
+
+        # the ring is a circle, so it takes the shorter side of the box it is
+        # given, whatever that box happens to be
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=donut]")
+        ringBox = b.call_js_func(
+            "sel => { const r = document.querySelector(sel).getBoundingClientRect();"
+            " return [Math.round(r.width), Math.round(r.height)]; }",
+            '[data-testid="donut"]')
+        ringViewBox = b.call_js_func(
+            "sel => document.querySelector(sel).getAttribute('viewBox')",
+            '[data-testid="donut"]')
+        self.assertEqual(ringBox[0], ringBox[1], "the ring is drawn as a circle")
+        self.assertEqual(ringViewBox, f"0 0 {ringBox[0]} {ringBox[1]}")
+
     def testDirectoryWithMoreChildrenThanTheCap(self):
         b = self.browser
 

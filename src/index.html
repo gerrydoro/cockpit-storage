@@ -30,6 +30,11 @@ along with this package; If not, see <http://www.gnu.org/licenses/>.
 </head>
 
 <body>
-    <div id="app"></div>
+    <!-- .ct-page-fill is Cockpit's contract for "this page fills the sheet":
+         pkg/lib/page.scss gives the page and its main container the full
+         height of the sheet, so the module's frame reaches the edges of the
+         page like every other Cockpit page. Without it the frame stops at
+         whatever height the content happens to be. -->
+    <div id="app" class="ct-page-fill"></div>
 </body>
 </html>

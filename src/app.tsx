@@ -137,7 +137,11 @@ export const Application = () => {
 
     return (
         <Page>
-            <Card>
+            {/* the page's frame fills the sheet (see .ct-page-fill in index.html)
+                and the card fills the frame, so the room left over is the
+                chart's: the charts lay themselves out in the box their area is
+                measured at, and the table keeps its own height */}
+            <Card isFullHeight className="storage-card">
                 <CardTitle>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                         <span data-testid="storage-title">{current ? current.path : _("Disk Usage")}</span>
@@ -163,7 +167,7 @@ export const Application = () => {
                         </div>
                     </div>
                 </CardTitle>
-                <CardBody>
+                <CardBody className="storage-body">
                     {fsLoading && <Spinner size="lg" />}
 
                     {!fsLoading && !current && (
@@ -229,54 +233,56 @@ export const Application = () => {
                             )}
 
                             {!dirLoading && entries.length > 0 && (
-                                <table className="pf-v6-c-table pf-m-compact" data-testid="usage-table">
-                                    <caption className="pf-v6-c-table__caption pf-v6-screen-reader">
-                                        {_("Directory contents")}
-                                    </caption>
-                                    <thead className="pf-v6-c-table__thead">
-                                        <tr className="pf-v6-c-table__tr">
-                                            <th className="pf-v6-c-table__th" scope="col">{_("Name")}</th>
-                                            <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("Size")}</th>
-                                            <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("% of total")}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="pf-v6-c-table__tbody">
-                                        {entries.slice(0, TABLE_ROWS).map(e => (
-                                            <tr className="pf-v6-c-table__tr" key={e.name}>
-                                                <td className="pf-v6-c-table__td">
-                                                    {e.isDir
-                                                        ? (
-                                                            <Button
-                                                                variant="link"
-                                                                isInline
-                                                                icon={<FolderIcon />}
-                                                                onClick={() => enterChild(e.name)}
-                                                            >
-                                                                {e.name}
-                                                            </Button>
-                                                        )
-                                                        : (
-                                                            <span><FileIcon /> {e.name}</span>
-                                                        )}
-                                                </td>
-                                                <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
-                                                    {formatSize(e.size)}
-                                                </td>
-                                                <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
-                                                    {percent(e.size)}
-                                                </td>
+                                <div className="storage-table">
+                                    <table className="pf-v6-c-table pf-m-compact" data-testid="usage-table">
+                                        <caption className="pf-v6-c-table__caption pf-v6-screen-reader">
+                                            {_("Directory contents")}
+                                        </caption>
+                                        <thead className="pf-v6-c-table__thead">
+                                            <tr className="pf-v6-c-table__tr">
+                                                <th className="pf-v6-c-table__th" scope="col">{_("Name")}</th>
+                                                <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("Size")}</th>
+                                                <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("% of total")}</th>
                                             </tr>
-                                        ))}
-                                        {entries.length > TABLE_ROWS && (
-                                            <tr className="pf-v6-c-table__tr" data-testid="table-more">
-                                                <td className="pf-v6-c-table__td" colSpan={3}>
-                                                    {cockpit.ngettext("…and $0 more item", "…and $0 more items", entries.length - TABLE_ROWS)
-                                                            .replace('$0', String(entries.length - TABLE_ROWS))}
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="pf-v6-c-table__tbody">
+                                            {entries.slice(0, TABLE_ROWS).map(e => (
+                                                <tr className="pf-v6-c-table__tr" key={e.name}>
+                                                    <td className="pf-v6-c-table__td">
+                                                        {e.isDir
+                                                            ? (
+                                                                <Button
+                                                                    variant="link"
+                                                                    isInline
+                                                                    icon={<FolderIcon />}
+                                                                    onClick={() => enterChild(e.name)}
+                                                                >
+                                                                    {e.name}
+                                                                </Button>
+                                                            )
+                                                            : (
+                                                                <span><FileIcon /> {e.name}</span>
+                                                            )}
+                                                    </td>
+                                                    <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
+                                                        {formatSize(e.size)}
+                                                    </td>
+                                                    <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
+                                                        {percent(e.size)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {entries.length > TABLE_ROWS && (
+                                                <tr className="pf-v6-c-table__tr" data-testid="table-more">
+                                                    <td className="pf-v6-c-table__td" colSpan={3}>
+                                                        {cockpit.ngettext("…and $0 more item", "…and $0 more items", entries.length - TABLE_ROWS)
+                                                                .replace('$0', String(entries.length - TABLE_ROWS))}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                         </>
                     )}

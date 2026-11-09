@@ -10,14 +10,14 @@ import { place } from './layout.js';
 import { formatSize } from './format.js';
 import { bytes } from './paths.js';
 import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
+import { useElementSize } from './useElementSize.js';
 
 const _ = cockpit.gettext;
 
-/* The treemap scales to its container, so this is only the coordinate system
-   the layout works in -- never a size a caller has to pass. */
-const WIDTH = 1000;
-const HEIGHT = 560;
-/* Room for the caption, which is drawn below the area rather than inside it. */
+/* Room for the caption, which is drawn below the area rather than inside it.
+   That is the only constant left here: the treemap's own size comes from the
+   box the page gives it, because the layout is done in the pixels it is drawn
+   in rather than into a fixed coordinate system that is then scaled. */
 const CAPTION_HEIGHT = 24;
 
 interface Props {
@@ -27,10 +27,16 @@ interface Props {
 }
 
 export const Treemap = ({ data, selected, onSelect }: Props) => {
+    /* The box this treemap fills, measured from the element the page sized in
+       CSS. It is zero on the first pass, and a box of zero draws nothing. */
+    const { ref, box } = useElementSize<HTMLDivElement>();
+    const width = box.width;
+    const height = box.height;
+
     /* The layout hands each datum back with its rectangle, so nothing here has
        to repeat its filter or its sort, or match a rectangle to a datum by
        position. */
-    const placed = place(data, 0, 0, WIDTH, HEIGHT);
+    const placed = place(data, 0, 0, width, Math.max(0, height - CAPTION_HEIGHT));
 
     /* Colour slots are decided by chart.js, so the treemap and the ring chart
        agree on which directory is which colour. */
@@ -41,57 +47,63 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
     const drawnTotal: number = placed.reduce((sum, datum) => sum + datum.size, 0);
 
     return (
-        <svg
-            viewBox={`0 0 ${WIDTH} ${HEIGHT + CAPTION_HEIGHT}`}
-            style={{ width: '100%', height: 'auto', display: 'block' }}
-            data-testid="treemap"
-        >
-            {placed.map(datum => {
-                const fill = paletteColor(slots.get(datum.name) ?? 0);
-                const isSel = selected === datum.name;
-                const clickable = Boolean(onSelect && datum.navigable);
-                const activate = () => onSelect?.(datum.name);
-                return (
-                    <g
-                        key={datum.name}
-                        role={clickable ? 'button' : undefined}
-                        tabIndex={clickable ? 0 : undefined}
-                        aria-label={`${datum.name}, ${formatSize(datum.size)}`}
-                        onClick={clickable ? activate : undefined}
-                        onKeyDown={clickable
-                            ? e => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    activate();
-                                }
-                            }
-                            : undefined}
-                        style={clickable ? { cursor: 'pointer' } : undefined}
-                        data-testid="treemap-cell"
-                    >
-                        <rect
-                            x={datum.x} y={datum.y} width={datum.w} height={datum.h}
-                            fill={fill}
-                            opacity={isSel ? 1 : 0.85}
-                            stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
-                            strokeWidth={isSel ? 2 : 1}
-                        />
-                        {datum.w > 60 && datum.h > 30 && (
-                            <text
-                                x={datum.x + 5} y={datum.y + 16}
-                                fontSize="14" fill="#ffffff"
-                                style={{ pointerEvents: 'none' }}
-                            >{datum.name}
-                            </text>
-                        )}
-                    </g>
-                );
-            })}
-            <text
-                x={WIDTH / 2} y={HEIGHT + 18} fontSize="13" fill="var(--ct-color-subtle-copy)"
-                textAnchor="middle"
-            >{formatSize(bytes(drawnTotal))} {_("total")}
-            </text>
-        </svg>
+        <div className="treemap" ref={ref}>
+            {width > 0 && height > 0 && (
+                <svg
+                    width={width}
+                    height={height}
+                    viewBox={`0 0 ${width} ${height}`}
+                    style={{ display: 'block' }}
+                    data-testid="treemap"
+                >
+                    {placed.map(datum => {
+                        const fill = paletteColor(slots.get(datum.name) ?? 0);
+                        const isSel = selected === datum.name;
+                        const clickable = Boolean(onSelect && datum.navigable);
+                        const activate = () => onSelect?.(datum.name);
+                        return (
+                            <g
+                                key={datum.name}
+                                role={clickable ? 'button' : undefined}
+                                tabIndex={clickable ? 0 : undefined}
+                                aria-label={`${datum.name}, ${formatSize(datum.size)}`}
+                                onClick={clickable ? activate : undefined}
+                                onKeyDown={clickable
+                                    ? e => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            activate();
+                                        }
+                                    }
+                                    : undefined}
+                                style={clickable ? { cursor: 'pointer' } : undefined}
+                                data-testid="treemap-cell"
+                            >
+                                <rect
+                                    x={datum.x} y={datum.y} width={datum.w} height={datum.h}
+                                    fill={fill}
+                                    opacity={isSel ? 1 : 0.85}
+                                    stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
+                                    strokeWidth={isSel ? 2 : 1}
+                                />
+                                {datum.w > 60 && datum.h > 30 && (
+                                    <text
+                                        x={datum.x + 5} y={datum.y + 16}
+                                        fontSize="14" fill="#ffffff"
+                                        style={{ pointerEvents: 'none' }}
+                                    >{datum.name}
+                                    </text>
+                                )}
+                            </g>
+                        );
+                    })}
+                    <text
+                        x={width / 2} y={height - 6} fontSize="13" fill="var(--ct-color-subtle-copy)"
+                        textAnchor="middle"
+                    >{formatSize(bytes(drawnTotal))} {_("total")}
+                    </text>
+                </svg>
+            )}
+        </div>
     );
 };
