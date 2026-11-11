@@ -7,7 +7,7 @@
 import cockpit from 'cockpit';
 import type { SpawnOptions } from 'cockpit';
 
-import { pathDepth, bytes, kibToBytes, type Bytes } from './paths.js';
+import { pathDepth, joinPath, bytes, kibToBytes, type Bytes } from './paths.js';
 
 /*
  * Data gathering for the disk-usage analyzer.
@@ -77,6 +77,39 @@ export interface DirUsage {
     size: Bytes; // total disk usage of this directory in bytes
     entries: UsageEntry[];
     complete: boolean; // false if `du` errored (e.g. unreadable subdirectories)
+}
+
+/* ---- hard links ---- */
+
+/*
+ * One inode the kernel knows by more than one path.
+ *
+ * `du` counts a hardlinked file once, which is what makes a directory's size
+ * the space it occupies rather than the space it would take on its own. The
+ * copies that share the inode are invisible in that number: two directories
+ * holding the same film each report it in full, so adding them up claims more
+ * than the disk holds. This is the record that lets the module say so.
+ */
+export interface SharedInode {
+    inode: number;
+    /* what the inode occupies on disk: find's %b, in 512-byte units */
+    bytes: Bytes;
+    /* st_nlink. More than `paths.length` when links live outside the mount */
+    links: number;
+    /* every path under the mount that reaches this inode */
+    paths: string[];
+}
+
+/*
+ * The hard-link picture of one mount.
+ *
+ * `complete` is false when `find` failed, the same way a Level's is: the
+ * numbers derived from it are then unknown rather than zero.
+ */
+export interface MountCensus {
+    mount: string;
+    shared: SharedInode[];
+    complete: boolean;
 }
 
 /* ---- pure parsing helpers (unit-testable) ---- */
@@ -291,6 +324,75 @@ export async function scanDirectory(path: string, runner: CommandRunner): Promis
 }
 
 /*
+ * Parse `find -xdev -type f -links +1 -printf '%i\t%b\t%n\t%p\n'`.
+ *
+ * Every record is inode, 512-byte blocks, link count and path. The path is the
+ * rest of the line, so a tab inside a filename stays in the path instead of
+ * shifting the numeric fields; a newline in a filename still splits a record,
+ * the same trade-off `parseDu` documents.
+ */
+export function parseCensus(text: string): { inode: number; blocks: number; links: number; path: string }[] {
+    const result = [];
+    for (const record of text.split('\n')) {
+        if (!record)
+            continue;
+        const first = record.indexOf('\t');
+        const second = first < 0 ? -1 : record.indexOf('\t', first + 1);
+        const third = second < 0 ? -1 : record.indexOf('\t', second + 1);
+        if (first < 0 || second < 0 || third < 0)
+            continue;
+        const inode = Number(record.slice(0, first));
+        const blocks = Number(record.slice(first + 1, second));
+        const links = Number(record.slice(second + 1, third));
+        if ([inode, blocks, links].some(Number.isNaN))
+            continue;
+        result.push({ inode, blocks, links, path: record.slice(third + 1) });
+    }
+    return result;
+}
+
+/*
+ * Group census records by inode and make their paths absolute.
+ *
+ * `find .` reports paths relative to the directory it was given, so each one
+ * is joined onto the mount: the code that applies a census to a directory
+ * works in absolute paths, like everything else in the module.
+ */
+export function buildCensus(text: string, mount: string, complete: boolean): MountCensus {
+    const byInode = new Map<number, SharedInode>();
+    for (const record of parseCensus(text)) {
+        const path = joinPath(mount, record.path.replace(/^\.\//, ''));
+        const seen = byInode.get(record.inode);
+        if (seen) {
+            seen.paths.push(path);
+            continue;
+        }
+        byInode.set(record.inode, {
+            inode: record.inode,
+            bytes: bytes(record.blocks * 512),
+            links: record.links,
+            paths: [path],
+        });
+    }
+    return { mount, shared: [...byInode.values()], complete };
+}
+
+/*
+ * Walk a mount for the files the kernel knows by more than one path.
+ *
+ * Only files with a link count above one are printed, which is what keeps this
+ * cheap next to a `du`: the walk still has to look at every file, but a whole
+ * media library travels back as a handful of records.
+ */
+export async function censusMount(mount: string, runner: CommandRunner): Promise<MountCensus> {
+    const result = await runner.run(
+        ['find', '.', '-xdev', '-type', 'f', '-links', '+1', '-printf', '%i\t%b\t%n\t%p\n'],
+        { directory: mount },
+    );
+    return buildCensus(result.output, mount, result.ok);
+}
+
+/*
  * Per-session memo for scans and the filesystem list. Takes the runner at
  * construction so the whole cache can be driven from an in-memory runner.
  *
@@ -301,6 +403,7 @@ export async function scanDirectory(path: string, runner: CommandRunner): Promis
 export class UsageCache {
     private readonly runner: CommandRunner;
     private dirs = new Map<string, Promise<DirUsage>>();
+    private censuses = new Map<string, Promise<MountCensus>>();
     private fileSystems: Promise<FileSystem[]> | null = null;
 
     constructor(runner: CommandRunner) {
@@ -326,8 +429,25 @@ export class UsageCache {
         return running;
     }
 
+    /* One census per mount per session: the walk is the expensive part of the
+       hard-link picture, and every directory inside a mount reads the same
+       one. */
+    getCensus(mount: string): Promise<MountCensus> {
+        const cached = this.censuses.get(mount);
+        if (cached)
+            return cached;
+
+        const running = censusMount(mount, this.runner).catch(err => {
+            this.censuses.delete(mount);
+            throw err;
+        });
+        this.censuses.set(mount, running);
+        return running;
+    }
+
     clear(): void {
         this.dirs.clear();
+        this.censuses.clear();
         this.fileSystems = null;
     }
 }

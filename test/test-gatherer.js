@@ -14,10 +14,13 @@
 
 import {
     parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
+    parseCensus, buildCensus, censusMount,
     listFileSystems, scanDirectory, UsageCache
 } from '../src/gatherer.js';
 import { inMemoryRunner } from './mock-cockpit.js';
 import { formatSize } from '../src/format.js';
+import { duplicatedBytes, linkCountedBytes, sharingUnder, ELSEWHERE } from '../src/sharing.js';
+import { bytes } from '../src/paths.js';
 
 /* Registers the navigation rules, the chart vocabulary, the layout and the byte
    unit; QUnit collects modules at import time. */
@@ -512,4 +515,248 @@ QUnit.test('an incomplete scan is cached, because it is a result and not a failu
     assert.equal(first.complete, false, 'unreadable directories are reported, not retried');
     assert.equal(second, first);
     assert.equal(duCalls, 1, 'Rescan is the way to retry, not revisiting the directory');
+});
+
+/* ---- parseCensus ---- */
+
+QUnit.module('parseCensus');
+
+/* inode, 512-byte blocks, link count, path -- what find -printf emits.
+   101 is the film both a and b hold; 102 and 104 are linked twice inside a;
+   103 has three links but only this one path inside the mount. */
+const CENSUS = [
+    '101\t2000\t2\t./a/film.mkv',
+    '101\t2000\t2\t./b/film.mkv',
+    '102\t1000\t2\t./a/only-here.mkv',
+    '102\t1000\t2\t./a/only-here-again.mkv',
+    '103\t500\t3\t./b/elsewhere.mkv',
+    '104\t7\t2\t./a/tab\tinside-name.mkv',
+    '104\t7\t2\t./a/tab\tinside-name-copy.mkv',
+    '',
+].join('\n');
+
+QUnit.test('reads inode, blocks, links and path from each record', assert => {
+    const records = parseCensus(CENSUS);
+    assert.equal(records.length, 7, 'one record per line');
+
+    assert.deepEqual(records[0], { inode: 101, blocks: 2000, links: 2, path: './a/film.mkv' });
+    assert.deepEqual(records[4], { inode: 103, blocks: 500, links: 3, path: './b/elsewhere.mkv' },
+                     'a link count above the paths found is kept, not corrected');
+});
+
+QUnit.test('keeps a tab inside a filename in the path, not in the numbers', assert => {
+    const records = parseCensus(CENSUS);
+    const tabbed = records[5];
+    assert.equal(tabbed.inode, 104, 'the numeric fields still parse');
+    assert.equal(tabbed.path, './a/tab\tinside-name.mkv', 'the tab stays in the path');
+});
+
+QUnit.test('skips records with missing or non-numeric fields', assert => {
+    const text = [
+        '',
+        'notanumber\t2\t2\t./x',
+        '105\t2\t2', // no path field at all
+        '106\t2\t2\t./y',
+        '',
+    ].join('\n');
+    const records = parseCensus(text);
+    assert.deepEqual(records.map(r => r.inode), [106], 'only the well-formed record survives');
+});
+
+/* ---- buildCensus ---- */
+
+QUnit.module('buildCensus');
+
+QUnit.test('groups records by inode and makes their paths absolute', assert => {
+    const census = buildCensus(CENSUS, '/media/B', true);
+
+    assert.equal(census.mount, '/media/B');
+    assert.equal(census.shared.length, 4, 'seven records, four distinct inodes');
+
+    const film = census.shared.find(i => i.inode === 101);
+    assert.equal(film.bytes, 2000 * 512, 'blocks are converted to bytes');
+    assert.equal(film.links, 2);
+    assert.deepEqual(film.paths, ['/media/B/a/film.mkv', '/media/B/b/film.mkv'],
+                     'both paths reach the same inode');
+});
+
+QUnit.test('records whether the walk itself succeeded', assert => {
+    const complete = buildCensus(CENSUS, '/media/B', true);
+    const partial = buildCensus(CENSUS, '/media/B', false);
+    assert.equal(complete.complete, true);
+    assert.equal(partial.complete, false,
+                 'an unreadable directory makes the picture unknown, not empty');
+});
+
+/* ---- censusMount ---- */
+
+QUnit.module('censusMount');
+
+QUnit.test('walks the mount asking only for files with more than one link', async assert => {
+    let seen = null;
+    const runner = runnerWith(DF, MOUNTS, {});
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'find')
+            seen = { args, directory: options?.directory };
+        return inner(args, options);
+    };
+
+    await censusMount('/media/B', runner);
+
+    assert.equal(seen.directory, '/media/B', 'the walk starts at the mount');
+    assert.ok(seen.args.includes('-links'), 'only multi-link files are reported');
+    assert.ok(seen.args.includes('-xdev'), 'the walk stays on the filesystem');
+});
+
+QUnit.test('reports complete: false when find fails', async assert => {
+    const runner = runnerWith(DF, MOUNTS, {
+        '/media/B': { census: null },
+    });
+
+    const census = await censusMount('/media/B', runner);
+    assert.equal(census.complete, false);
+    assert.equal(census.shared.length, 0, 'nothing was read');
+});
+
+/* ---- duplicatedBytes / linkCountedBytes ---- */
+
+QUnit.module('link counting');
+
+QUnit.test('duplicated bytes are the copies beyond the first', assert => {
+    const census = buildCensus(CENSUS, '/media/B', true);
+    /* 101, 102 and 104 have two paths each: one extra copy each. 103 has
+       three links but one path here, so inside the mount it adds none. */
+    assert.equal(duplicatedBytes(census), 1024000 + 512000 + 3584);
+});
+
+QUnit.test('link-counted bytes are what summing folders by hand produces', assert => {
+    const census = buildCensus(CENSUS, '/media/B', true);
+    /* what du reports for the mount, plus every extra copy */
+    assert.equal(linkCountedBytes(bytes(4000 * 512), census), 4000 * 512 + 1024000 + 512000 + 3584);
+});
+
+/* ---- sharingUnder ---- */
+
+QUnit.module('sharingUnder');
+
+const SHARING_CENSUS = buildCensus(CENSUS, '/media/B', true);
+
+/* du of a: 101 + 102 + 104, each inode once. du of b: 101 + 103. */
+const SIZE_A = bytes(2000 * 512 + 1000 * 512 + 7 * 512);
+const SIZE_B = bytes(2000 * 512 + 500 * 512);
+
+QUnit.test('a folder splits into what is only here and what also lives elsewhere', assert => {
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B/a', SIZE_A);
+
+    assert.equal(sharing.sharedWithElsewhere, 2000 * 512, 'the film it shares with b');
+    assert.equal(sharing.exclusive, 1000 * 512 + 7 * 512,
+                 'the rest is only reachable from a');
+    assert.equal(sharing.exclusive + sharing.sharedWithElsewhere, SIZE_A,
+                 'the two parts account for the size du reported');
+});
+
+QUnit.test('names the folder the shared bytes also live in', assert => {
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B/a', SIZE_A);
+
+    assert.deepEqual(sharing.counterparts.map(c => c.name), ['b']);
+    assert.equal(sharing.counterparts[0].bytes, 2000 * 512);
+    assert.equal(sharing.counterparts[0].files, 1, 'one shared file');
+});
+
+QUnit.test('a hard link inside the folder is not sharing with anywhere', assert => {
+    /* 102 and 104 have both their paths inside a: du counted them once, so
+       there is no second copy for the size to be hiding */
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B/a', SIZE_A);
+    assert.equal(sharing.counterparts.length, 1, 'the internal copies are not counterparts');
+});
+
+QUnit.test('links the census never reached count as sharing too', assert => {
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B/b', SIZE_B);
+
+    assert.equal(sharing.sharedWithElsewhere, 2000 * 512 + 500 * 512,
+                 'the film shared with a, plus the one linked from outside the mount');
+    assert.equal(sharing.exclusive, 0, 'nothing in b is exclusive to it');
+
+    const elsewhere = sharing.counterparts.find(c => c.name === ELSEWHERE);
+    assert.equal(elsewhere.bytes, 500 * 512, 'the outside link is named as such, not as a folder');
+    assert.equal(elsewhere.files, 1);
+});
+
+QUnit.test('a folder is named by its own branch, never by the shared parent', assert => {
+    const text = [
+        '201\t100\t2\t./a/x/film.mkv',
+        '201\t100\t2\t./a/y/film.mkv',
+        '',
+    ].join('\n');
+    const census = buildCensus(text, '/media/B', true);
+
+    const sharing = sharingUnder(census, '/media/B/a/x', bytes(100));
+    assert.deepEqual(sharing.counterparts.map(c => c.name), ['a/y'],
+                     'the sibling branch, not the parent a and not the folder itself');
+});
+
+QUnit.test('the mount itself only shares with what is outside it', assert => {
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B', bytes(1795584));
+
+    assert.equal(sharing.sharedWithElsewhere, 500 * 512,
+                 'inside a mount every path is inside it, so only outside links are sharing');
+    assert.equal(sharing.exclusive, 1795584 - 500 * 512);
+
+    assert.deepEqual(sharing.counterparts.map(c => c.name), [ELSEWHERE]);
+});
+
+QUnit.test('an inode the directory cannot reach is none of its business', assert => {
+    const sharing = sharingUnder(SHARING_CENSUS, '/media/B/c', bytes(0));
+    assert.equal(sharing.sharedWithElsewhere, 0, 'nothing here is shared');
+    assert.equal(sharing.counterparts.length, 0);
+});
+
+QUnit.test('a census with no hard links shares nothing', assert => {
+    const census = buildCensus('', '/media/B', true);
+    const sharing = sharingUnder(census, '/media/B/a', SIZE_A);
+    assert.equal(sharing.sharedWithElsewhere, 0);
+    assert.equal(sharing.exclusive, SIZE_A, 'the whole size is exclusive');
+});
+
+/* ---- UsageCache: the census ---- */
+
+QUnit.test('walks each mount once per session, however many folders ask', async assert => {
+    let censusCalls = 0;
+    const runner = runnerWith(DF, MOUNTS, {
+        '/media/B': { census: CENSUS },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'find' && args.includes('-links') && options?.directory === '/media/B')
+            censusCalls += 1;
+        return inner(args, options);
+    };
+
+    const cache = new UsageCache(runner);
+    await cache.getCensus('/media/B');
+    await cache.getCensus('/media/B');
+    await cache.getCensus('/media/B');
+
+    assert.equal(censusCalls, 1, 'the walk is the expensive part; the census is shared');
+});
+
+QUnit.test('Rescan drops the census along with the scans', async assert => {
+    let censusCalls = 0;
+    const runner = runnerWith(DF, MOUNTS, {
+        '/media/B': { census: CENSUS },
+    });
+    const inner = runner.run;
+    runner.run = (args, options) => {
+        if (args[0] === 'find' && args.includes('-links'))
+            censusCalls += 1;
+        return inner(args, options);
+    };
+
+    const cache = new UsageCache(runner);
+    await cache.getCensus('/media/B');
+    cache.clear();
+    await cache.getCensus('/media/B');
+
+    assert.equal(censusCalls, 2, 'a new session re-walks the mount');
 });
