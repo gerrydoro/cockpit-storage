@@ -5,9 +5,12 @@
  */
 
 import React from 'react';
+import cockpit from 'cockpit';
 import { arcPath, isFullCircle } from './layout.js';
 import { colorSlots, paletteColor, type ChartDatum } from './chart.js';
 import { useElementSize } from './useElementSize.js';
+
+const _ = cockpit.gettext;
 
 interface Props {
     data: ChartDatum[];
@@ -105,9 +108,19 @@ export const RingChart = ({ data, centerLabel, centerSub }: Props) => {
             {total > 0 && (
                 <ul className="ring-chart__legend">
                     {usable.map(d => (
-                        <li key={d.name}>
+                        <li key={d.name} data-shared={d.shared ? String(Math.round(d.shared / d.size * 100)) : undefined}>
                             <span className="ring-chart__swatch" style={{ background: colorOf(d) }} aria-hidden="true" />
                             <span className="ring-chart__name">{d.name}</span>
+                            {/* A ring cannot hatch a fraction of an arc the way a
+                                rectangle can, so the shared part of a slice is
+                                named here rather than drawn. */}
+                            {d.shared
+                                ? (
+                                    <span className="ring-chart__shared">
+                                        {' '}{Math.round(d.shared / d.size * 100)}% {_("shared")}
+                                    </span>
+                                )
+                                : null}
                         </li>
                     ))}
                 </ul>

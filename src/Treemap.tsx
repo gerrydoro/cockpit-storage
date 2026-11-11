@@ -20,6 +20,12 @@ const _ = cockpit.gettext;
    in rather than into a fixed coordinate system that is then scaled. */
 const CAPTION_HEIGHT = 24;
 
+/* Hatch the shared part of a cell with, so "this much is also linked
+   elsewhere" reads without a number being printed on the rectangle. The
+   stripes are drawn in the cell's own colour rather than white so they read as
+   the same entry, not as a different one laid over it. */
+const HATCH_ID = 'treemap-shared-hatch';
+
 interface Props {
     data: ChartDatum[];
     selected?: string | null;
@@ -56,11 +62,33 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
                     style={{ display: 'block' }}
                     data-testid="treemap"
                 >
+                    <defs>
+                        <pattern
+                            id={HATCH_ID}
+                            patternUnits="userSpaceOnUse"
+                            width="7"
+                            height="7"
+                            patternTransform="rotate(45)"
+                        >
+                            <rect width="7" height="7" fill="transparent" />
+                            <line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" strokeWidth="2.5" opacity="0.5" />
+                        </pattern>
+                    </defs>
                     {placed.map(datum => {
                         const fill = paletteColor(slots.get(datum.name) ?? 0);
                         const isSel = selected === datum.name;
                         const clickable = Boolean(onSelect && datum.navigable);
                         const activate = () => onSelect?.(datum.name);
+
+                        /* A cell's area is its size, so the part of it that is
+                           a second name for bytes counted elsewhere is a
+                           fraction of its width: the stripes cover exactly the
+                           share of the cell that would not be freed by
+                           deleting the folder. */
+                        const shared = datum.shared ?? 0;
+                        const share = datum.size > 0 ? shared / datum.size : 0;
+                        const sharedW = share > 0 ? Math.round(datum.w * share) : 0;
+
                         return (
                             <g
                                 key={datum.name}
@@ -78,6 +106,7 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
                                     : undefined}
                                 style={clickable ? { cursor: 'pointer' } : undefined}
                                 data-testid="treemap-cell"
+                                data-shared={sharedW > 0 ? String(Math.round(share * 100)) : undefined}
                             >
                                 <rect
                                     x={datum.x} y={datum.y} width={datum.w} height={datum.h}
@@ -86,10 +115,16 @@ export const Treemap = ({ data, selected, onSelect }: Props) => {
                                     stroke={isSel ? 'var(--pf-t--global--color--brand--default)' : '#ffffff'}
                                     strokeWidth={isSel ? 2 : 1}
                                 />
+                                {sharedW > 0 && (
+                                    <rect
+                                        x={datum.x} y={datum.y} width={sharedW} height={datum.h}
+                                        fill={`url(#${HATCH_ID})`}
+                                        pointerEvents="none"
+                                    />
+                                )}
                                 {datum.w > 60 && datum.h > 30 && (
                                     <text
-                                        x={datum.x + 5} y={datum.y + 16}
-                                        fontSize="14" fill="#ffffff"
+                                        x={datum.x + 5} y={datum.y + 16} fontSize="14" fill="#ffffff"
                                         style={{ pointerEvents: 'none' }}
                                     >{datum.name}
                                     </text>

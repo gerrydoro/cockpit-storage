@@ -69,6 +69,13 @@ Commands:
   colour-slot rule, and turning a level's entries into chart data. Both charts
   read from it, so a level keeps its colours and its slice cap across views.
   `navigable` is what a chart tests to decide clickability, not `isDir`.
+- `src/sharing.ts` — what a mount's hard links mean: `duplicatedBytes` (what
+  `du -l` would add), `sharingUnder` (a directory's exclusive part against the
+  part that also lives under another name) and the counterpart naming rule.
+  Pure arithmetic over `MountCensus` from `gatherer.ts`.
+- `src/Breakdown.tsx` — the strip that reads those numbers off: the mount's
+  allocated-vs-files head, the split bar, and the legend. Presentation only:
+  every number in it comes from `sharing.ts`.
 - `src/layout.ts` — the charts' geometry, all of it React-free and
   Node-tested: `place` lays a treemap and hands each datum back with its
   rectangle, so the caller never repeats the layout's filter and sort or joins

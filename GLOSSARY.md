@@ -118,6 +118,35 @@ introduce a new concept, add it here.
   shorter side) rather than in a fixed coordinate system scaled to fit, which is
   what made a treemap's shape depend on the size of the window.
 
+**Allocated**
+: Bytes the filesystem reports as used (`df` Used). Exact for a filesystem that
+  holds one mount's files; on a btrfs device carrying several subvolumes it
+  covers the device, so the breakdown says as much rather than pretending it is
+  the mount's own.
+
+**Files (unique)**
+: Bytes the files reachable from here occupy, each inode counted once: what
+  `du` reports. The number every size in this module has always been.
+
+**Hardlinked copies**
+: Bytes that exist under more than one name inside the mount. The disk holds
+  them once, so they are part of **Files** and not extra space -- but summing
+  folder sizes counts them again, which is why the breakdown shows what
+  `du -l` would add on top.
+
+**Exclusive**
+: For a directory, the part of its size that no other path in the mount
+  reaches. `exclusive` plus **also linked elsewhere** is exactly the directory's
+  size, so the two are a partition of a number `du` really reported, not an
+  estimate.
+
+**Also linked elsewhere**
+: The part of a directory's size that is a second name for bytes counted
+  elsewhere in the mount. Named by **counterpart**: the folder the other name
+  lives in, or *elsewhere on this device* for links a mount's walk never
+  reached -- a hard link cannot cross filesystems, so those copies are on the
+  same device at a path outside the mount.
+
 **.ct-page-fill**
 : Cockpit's contract for "this page fills the shell": the class on the page's
   root element is what `pkg/lib/page.scss` looks for to give the page and its

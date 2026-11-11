@@ -67,6 +67,12 @@
         font-size: 12px;
         font-weight: normal;
     }
+
+    /* the card's hard-link line: the part of the mount's usage that is a
+       second name for bytes the disk holds once */
+    .fs-picker-shared {
+        color: var(--ct-color-subtle-copy);
+    }
 }
 
 /* PatternFly 6's Page lays itself out with a column for a page sidebar from
@@ -109,6 +115,106 @@
     flex: 1 1 auto;
     min-inline-size: 0;
     min-block-size: 240px;
+}
+
+/* ---- the breakdown: what the folder costs, and what is a second name ---- */
+
+.breakdown {
+    flex: 0 0 auto;
+    margin-block-end: 16px;
+    font-size: 13px;
+}
+
+.breakdown-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    margin-block-end: 6px;
+}
+
+.breakdown-number {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.breakdown-label,
+.breakdown-note {
+    color: var(--ct-color-subtle-copy);
+}
+
+.breakdown-muted {
+    opacity: 0.75;
+}
+
+.breakdown-sep {
+    color: var(--ct-color-subtle-copy);
+    opacity: 0.6;
+}
+
+.breakdown-note {
+    font-style: italic;
+}
+
+/* One bar of the folder's size, split into the part nothing else reaches and
+   the part that also lives under another name. The two widths are a partition
+   of the size, so the bar cannot disagree with the legend under it. */
+.breakdown-bar {
+    display: flex;
+    block-size: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--pf-t--global--border--color--default);
+}
+
+.breakdown-bar-base {
+    background: var(--pf-t--global--color--brand--default);
+}
+
+.breakdown-bar-extra {
+    /* the shared part is a copy, not a different thing: stripes in the same
+       colour say "this much of the rectangle is also over there" */
+    background-color: color-mix(in oklab, var(--pf-t--global--color--brand--default) 55%, white);
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgb(255 255 255 / 55%) 0 3px,
+        transparent 3px 7px
+    );
+}
+
+.breakdown-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin-block-start: 4px;
+    color: var(--ct-color-subtle-copy);
+}
+
+.breakdown-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.breakdown-swatch {
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.breakdown-swatch-base {
+    background: var(--pf-t--global--color--brand--default);
+}
+
+.breakdown-swatch-extra {
+    background-color: color-mix(in oklab, var(--pf-t--global--color--brand--default) 55%, white);
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgb(255 255 255 / 55%) 0 3px,
+        transparent 3px 7px
+    );
 }
 
 .ring-chart {
@@ -159,6 +265,15 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* A ring cannot hatch a fraction of an arc, so the shared part of a slice
+       is named next to it instead of drawn on it. */
+    .ring-chart__shared {
+        flex: 0 0 auto;
+        color: var(--ct-color-subtle-copy);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
     }
 }
 
