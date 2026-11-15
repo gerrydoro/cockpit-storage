@@ -23,7 +23,7 @@ import '@patternfly/react-styles/css/components/Table/table.css';
 import cockpit from 'cockpit';
 
 import type { FileSystem, DirUsage, UsageEntry, MountCensus } from './gatherer.js';
-import { UsageCache, cockpitRunner } from './gatherer.js';
+import { UsageCache, cockpitRunner, withEntry } from './gatherer.js';
 import { Trail } from './trail.js';
 
 import { Treemap } from './Treemap.jsx';
@@ -69,7 +69,9 @@ export const Application = () => {
     const [censuses, setCensuses] = useState<Map<string, MountCensus>>(new Map());
     /* What the mount's files occupy, once each, for the card that shows it. */
     const [mountFiles, setMountFiles] = useState<Map<string, Bytes>>(new Map());
-    const [censusPending, setCensusPending] = useState(false);
+    /* Set when a mount's walk failed, so "measuring" does not keep saying so
+       about something that is never coming. */
+    const [censusFailed, setCensusFailed] = useState(false);
 
     const current = trail.current();
     const currentPath = current?.path ?? null;
@@ -129,43 +131,47 @@ export const Application = () => {
     }, [currentPath, session]);
 
     /* Walk the opened mount for its hard links, so the breakdown can say which
-       part of each folder is a second name for bytes already on the disk. */
+       part of each folder is a second name for bytes already on the disk.
+
+       Its dependencies are its inputs -- which mount, and which session -- and
+       never the map it stores into. An effect that depends on the state it sets
+       re-triggers itself: the store is a new object, the object is a
+       dependency, so the effect runs again and stores again, and the page
+       renders until the browser gives up on it. */
     useEffect(() => {
         if (!currentMount)
             return;
         let active = true;
-        setCensusPending(!censuses.has(currentMount));
+        setCensusFailed(false);
         session.getCensus(currentMount)
                 .then(census => {
                     if (!active)
                         return;
-                    setCensuses(prev => new Map(prev).set(currentMount, census));
-                    setCensusPending(false);
+                    setCensuses(prev => withEntry(prev, currentMount, census));
                 })
                 .catch(() => {
                     if (!active)
                         return;
-                    setCensusPending(false);
+                    setCensusFailed(true);
                 });
         return () => { active = false };
-    }, [currentMount, session, censuses]);
+    }, [currentMount, session]);
 
     /* While the picker is showing, walk every mount in turn so each card can
        say how much of its usage is a hard-link copy. Entering a mount later
-       reads the same walk, so this is the only place the cost is paid. */
+       reads the same walk, so this is the only place the cost is paid.
+
+       For the same reason this does not watch the maps it fills: what a mount
+       still needs is asked of the session, whose cache already knows, and a
+       store that changes nothing changes nothing (see `withEntry`). */
     useEffect(() => {
         if (currentPath || fileSystems.length === 0)
             return;
         let active = true;
-        setCensusPending(true);
         (async () => {
             for (const fs of fileSystems) {
                 if (!active)
                     return;
-                const haveCensus = censuses.has(fs.mount);
-                const haveFiles = mountFiles.has(fs.mount);
-                if (haveCensus && haveFiles)
-                    continue;
                 try {
                     /* The census and the mount's own total: the two numbers a
                        card needs to say what its files occupy once each and
@@ -177,21 +183,26 @@ export const Application = () => {
                     ]);
                     if (!active)
                         return;
-                    setCensuses(prev => new Map(prev).set(fs.mount, census));
-                    setMountFiles(prev => new Map(prev).set(fs.mount, usage.size));
+                    setCensuses(prev => withEntry(prev, fs.mount, census));
+                    setMountFiles(prev => withEntry(prev, fs.mount, usage.size));
                 } catch {
                     /* leave this card without its hard-link line: an
                        unreadable mount is the scan's problem, not the card's */
                 }
             }
-            if (active)
-                setCensusPending(false);
         })();
         return () => { active = false };
-    }, [currentPath, fileSystems, session, censuses, mountFiles]);
+    }, [currentPath, fileSystems, session]);
 
-    /* Rescan drops every cached scan and reloads the visible level. */
-    const refresh = () => setSession(newSession());
+    /* Rescan drops every cached scan and reloads the visible level. What the
+       previous session measured is dropped with it: the censuses are per-session
+       data, and leaving the old ones in would split this session's fresh `du`
+       numbers with last session's hard-link picture until the new walk lands. */
+    const refresh = () => {
+        setCensuses(new Map());
+        setMountFiles(new Map());
+        setSession(newSession());
+    };
 
     const enterFs = (mount: string) => setTrail(Trail.open(mount));
     const enterChild = (name: string) => setTrail(trail.openChild(name));
@@ -206,6 +217,11 @@ export const Application = () => {
        entries: what is reachable only from here, and what is a second name for
        bytes that also live elsewhere in the mount. */
     const census = currentMount ? censuses.get(currentMount) ?? null : null;
+    /* Measuring means this mount's walk is on its way: inside a mount, without
+       its census, and not after a failure. Reading it off the map rather than
+       carrying it in state is what lets the effect that fills the map leave it
+       alone afterwards. */
+    const censusPending = currentMount !== null && !census && !censusFailed;
     const entryList = entries;
     const entrySharing: Map<string, Sharing> | null = React.useMemo(() => {
         if (!census || !currentPath)
@@ -306,8 +322,12 @@ export const Application = () => {
 
                             {/* What the folder costs on disk, and which part of
                                 that is a second name for bytes already counted.
-                                It reads the same census the charts hatch. */}
-                            {(dirUsage || censusPending) && (
+                                It reads the same census the charts hatch, and
+                                waits for the size it reports on: a strip drawn
+                                beside a scan still in flight would read "0 B of
+                                files" as the folder's size, which is a claim
+                                about the folder rather than about the wait. */}
+                            {dirUsage && (
                                 <Breakdown
                                     fileSystem={currentFileSystem}
                                     size={totalSize}

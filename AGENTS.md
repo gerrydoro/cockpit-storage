@@ -38,6 +38,12 @@ Commands:
 - File imports use the output extension, not the real one: `src/index.tsx`
   imports `./app.jsx` and `app.tsx` imports `./gatherer.js`. `build.js` declares
   entry `./src/index.js`, which esbuild resolves to `index.tsx`. Keep this.
+- **An effect must not depend on the state it fills.** The census effect stored
+  into `censuses` and listed `censuses` as a dependency: every store was a new
+  Map, so the effect re-triggered itself forever and the page rendered until the
+  browser gave up. Its dependencies are its inputs (mount, session) only, and
+  `withEntry` in `gatherer.ts` is what makes a store of the same value a no-op —
+  pinned by tests in `test/test-gatherer.js`.
 
 ## Source layout
 

@@ -451,3 +451,19 @@ export class UsageCache {
         this.fileSystems = null;
     }
 }
+
+/* ---- the maps the page keeps ---- */
+
+/*
+ * The same value under the same key is the same map.
+ *
+ * The per-mount censuses and file totals live in React state, and storing one
+ * that is already there must not produce a new object: React would re-render
+ * for it, and the effect that filled the map -- which cannot afford to depend
+ * on it, for exactly this reason -- would run again. The result is a loop that
+ * renders the page as fast as the browser allows, which is what a frozen page
+ * is from the inside.
+ */
+export function withEntry<V>(map: Map<string, V>, key: string, value: V): Map<string, V> {
+    return map.get(key) === value ? map : new Map(map).set(key, value);
+}

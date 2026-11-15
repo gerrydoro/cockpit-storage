@@ -15,7 +15,7 @@
 import {
     parseMounts, parseDf, filterFileSystems, parseDu, buildDirUsage,
     parseCensus, buildCensus, censusMount,
-    listFileSystems, scanDirectory, UsageCache
+    listFileSystems, scanDirectory, UsageCache, withEntry
 } from '../src/gatherer.js';
 import { inMemoryRunner } from './mock-cockpit.js';
 import { formatSize } from '../src/format.js';
@@ -759,4 +759,31 @@ QUnit.test('Rescan drops the census along with the scans', async assert => {
     await cache.getCensus('/media/B');
 
     assert.equal(censusCalls, 2, 'a new session re-walks the mount');
+});
+
+/* ---- withEntry: the maps the page keeps ---- */
+
+QUnit.module('withEntry');
+
+QUnit.test('storing a census that is already there is the same map', assert => {
+    /* the census is stored once: a second store of the same object must not
+       make a new map, because a new map is a new render, and the effect that
+       stores it cannot afford to be told the map changed */
+    const census = buildCensus(CENSUS, '/media/B', true);
+    const map = new Map([['/media/B', census]]);
+
+    assert.equal(withEntry(map, '/media/B', census), map,
+                 'React has nothing to re-render for when nothing changed');
+});
+
+QUnit.test('a different census is news, and the map it came from is untouched', assert => {
+    const first = buildCensus(CENSUS, '/media/B', true);
+    const later = buildCensus(CENSUS, '/media/B', true);
+    const map = new Map([['/media/B', first]]);
+
+    const updated = withEntry(map, '/media/B', later);
+    assert.notEqual(updated, map, 'a new census is a new map');
+    assert.equal(updated.get('/media/B'), later, 'and it holds the new census');
+    assert.equal(map.get('/media/B'), first,
+                 'the map it came from is not mutated, so a render in flight still reads a map');
 });
