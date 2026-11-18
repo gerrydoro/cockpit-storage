@@ -5,6 +5,7 @@
  */
 
 import type { UsageEntry } from './gatherer.js';
+import type { Sharing } from './sharing.js';
 import { bytes, type Bytes } from './paths.js';
 
 /*
@@ -24,6 +25,10 @@ import { bytes, type Bytes } from './paths.js';
 export interface ChartDatum {
     name: string;
     size: Bytes;
+    /* the part of `size` that also lives under another name in the mount.
+       Zero for most entries; absent when the mount's hard links are not
+       known, so a chart can tell "not shared" from "not measured". */
+    shared?: Bytes;
     /* the chart makes it clickable only when this is set */
     navigable?: boolean;
     /* aggregated rather than a real entry, e.g. the tail past the slice cap */
@@ -49,13 +54,21 @@ export function colorSlots(data: ChartDatum[]): Map<string, number> {
     return new Map(data.map((datum, i) => [datum.name, i]));
 }
 
-/* The entries of a level, in the order the charts will draw them. */
-export function levelData(entries: UsageEntry[]): ChartDatum[] {
-    return entries.map(entry => ({
-        name: entry.name,
-        size: entry.size,
-        navigable: entry.isDir,
-    }));
+/* The entries of a level, in the order the charts will draw them.
+
+   `sharing` is the level's hard-link picture, keyed by entry name. It is
+   optional because it takes a census to produce: without one the charts draw
+   the sizes `du` reported, which is what they always did. */
+export function levelData(entries: UsageEntry[], sharing?: Map<string, Sharing>): ChartDatum[] {
+    return entries.map(entry => {
+        const shared = sharing?.get(entry.name)?.sharedWithElsewhere;
+        return {
+            name: entry.name,
+            size: entry.size,
+            ...(shared ? { shared } : {}),
+            navigable: entry.isDir,
+        };
+    });
 }
 
 /*

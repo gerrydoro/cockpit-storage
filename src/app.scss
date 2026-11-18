@@ -43,6 +43,9 @@
     flex-wrap: wrap;
     gap: 16px;
     margin-top: 16px;
+    /* never the thing that makes room: the picker is a row of buttons, and a
+       shorter one would be a partly hidden one */
+    flex: 0 0 auto;
 
     .fs-picker-button {
         padding: 8px 16px;
@@ -63,5 +66,229 @@
     .fs-picker-detail {
         font-size: 12px;
         font-weight: normal;
+    }
+
+    /* the card's hard-link line: the part of the mount's usage that is a
+       second name for bytes the disk holds once */
+    .fs-picker-shared {
+        color: var(--ct-color-subtle-copy);
+    }
+}
+
+/* PatternFly 6's Page lays itself out with a column for a page sidebar from
+   75rem up: grid-template-areas becomes "header header" "sidebar main" and
+   grid-template-columns <sidebar width> 1fr, whatever the page renders. This
+   module has no page sidebar, so that column is 18.125rem of empty sheet and
+   the frame stops that much short of the page it should fill -- the same
+   reason .ct-page-fill exists, on the other axis. A page that does render a
+   sidebar keeps PF's grid, so this only says "no sidebar, no column". */
+.pf-v6-c-page:not(:has(.pf-v6-c-page__sidebar)) {
+    grid-template-areas: "header" "main";
+    grid-template-columns: 1fr;
+}
+
+/* The page fills the sheet (`.ct-page-fill` in index.html, which is what
+   pkg/lib/page.scss reads to give the page and its frame the sheet's height),
+   and the card fills that frame. Everything below is about what the card's
+   body does with the height it now always has: the chart takes what is left,
+   never the table, and never less than a chart can be read at. */
+.storage-card {
+    .pf-v6-c-card__body {
+        display: flex;
+        flex-direction: column;
+        min-block-size: 0;
+    }
+
+    /* everything but the charts keeps the height it needs: a squarer treemap
+       is the layout's business, and a shorter table or picker row would be a
+       partly hidden one */
+    .pf-v6-c-card__body > :not(.treemap, .ring-chart) {
+        flex: 0 0 auto;
+    }
+}
+
+/* The charts lay themselves out in the pixels of the box they are given
+   (see useElementSize), so all they need from CSS is that box: the room the
+   card's body has left over, and never smaller than a chart can be read at. */
+.treemap,
+.ring-chart {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    min-block-size: 240px;
+}
+
+/* ---- the breakdown: what the folder costs, and what is a second name ---- */
+
+.breakdown {
+    flex: 0 0 auto;
+    margin-block-end: 16px;
+    font-size: 13px;
+}
+
+.breakdown-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    margin-block-end: 6px;
+}
+
+.breakdown-number {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.breakdown-label,
+.breakdown-note {
+    color: var(--ct-color-subtle-copy);
+}
+
+.breakdown-muted {
+    opacity: 0.75;
+}
+
+.breakdown-sep {
+    color: var(--ct-color-subtle-copy);
+    opacity: 0.6;
+}
+
+.breakdown-note {
+    font-style: italic;
+}
+
+/* One bar of the folder's size, split into the part nothing else reaches and
+   the part that also lives under another name. The two widths are a partition
+   of the size, so the bar cannot disagree with the legend under it. */
+.breakdown-bar {
+    display: flex;
+    block-size: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--pf-t--global--border--color--default);
+}
+
+.breakdown-bar-base {
+    background: var(--pf-t--global--color--brand--default);
+}
+
+.breakdown-bar-extra {
+    /* the shared part is a copy, not a different thing: stripes in the same
+       colour say "this much of the rectangle is also over there" */
+    background-color: color-mix(in oklab, var(--pf-t--global--color--brand--default) 55%, white);
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgb(255 255 255 / 55%) 0 3px,
+        transparent 3px 7px
+    );
+}
+
+.breakdown-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin-block-start: 4px;
+    color: var(--ct-color-subtle-copy);
+}
+
+.breakdown-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.breakdown-swatch {
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.breakdown-swatch-base {
+    background: var(--pf-t--global--color--brand--default);
+}
+
+.breakdown-swatch-extra {
+    background-color: color-mix(in oklab, var(--pf-t--global--color--brand--default) 55%, white);
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgb(255 255 255 / 55%) 0 3px,
+        transparent 3px 7px
+    );
+}
+
+.ring-chart {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+
+    /* the ring is a circle, so the shorter side of its box is its diameter;
+       the legend below it keeps the rows it needs */
+    .ring-chart__ring {
+        display: flex;
+        flex: 1 1 auto;
+        align-items: center;
+        justify-content: center;
+        min-block-size: 120px;
+        min-inline-size: 0;
+    }
+
+    .ring-chart__legend {
+        display: flex;
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+        gap: 4px 24px;
+        min-block-size: 0;
+        max-block-size: 40%;
+        overflow-y: auto;
+        margin: 16px 0 0;
+        padding: 0;
+        list-style: none;
+
+        li {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            max-width: 320px;
+        }
+    }
+
+    .ring-chart__swatch {
+        flex: 0 0 auto;
+        width: 12px;
+        height: 12px;
+        display: inline-block;
+    }
+
+    .ring-chart__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* A ring cannot hatch a fraction of an arc, so the shared part of a slice
+       is named next to it instead of drawn on it. */
+    .ring-chart__shared {
+        flex: 0 0 auto;
+        color: var(--ct-color-subtle-copy);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+    }
+}
+
+/* the table is the uncapped view of a level, so it is never the thing that
+   shrinks to fit: it scrolls under its own header instead, and never takes
+   the room a chart needs */
+.storage-table {
+    flex: 0 0 auto;
+    max-block-size: 40vh;
+    overflow-y: auto;
+
+    .pf-v6-c-table__th {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 1;
+        background-color: var(--pf-v6-c-table--BackgroundColor);
     }
 }

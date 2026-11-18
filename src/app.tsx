@@ -22,17 +22,19 @@ import '@patternfly/react-styles/css/components/Table/table.css';
 
 import cockpit from 'cockpit';
 
-import type { FileSystem, DirUsage, UsageEntry } from './gatherer.js';
-import { UsageCache, cockpitRunner } from './gatherer.js';
+import type { FileSystem, DirUsage, UsageEntry, MountCensus } from './gatherer.js';
+import { UsageCache, cockpitRunner, withEntry } from './gatherer.js';
 import { Trail } from './trail.js';
 
 import { Treemap } from './Treemap.jsx';
 import { RingChart } from './RingChart.jsx';
 import { Breadcrumbs } from './Breadcrumbs.jsx';
 import { FsPicker } from './FsPicker.jsx';
+import { Breakdown } from './Breakdown.jsx';
 import { formatSize } from './format.js';
 import { capped, levelData } from './chart.js';
-import { bytes, type Bytes } from './paths.js';
+import { duplicatedBytes, sharingUnder, type Sharing } from './sharing.js';
+import { bytes, joinPath, type Bytes } from './paths.js';
 
 const _ = cockpit.gettext;
 
@@ -60,8 +62,20 @@ export const Application = () => {
     const [viewMode, setViewMode] = useState<'treemap' | 'donut'>('treemap');
     const [selected, setSelected] = useState<string | null>(null);
 
+    /* One census per mount, shared by the picker's cards and by every
+       directory inside the mount. The picker's effect walks the mounts one at
+       a time -- a hard-link walk is a full traversal, and running them all at
+       once on a spinning disk is slower than running them in turn. */
+    const [censuses, setCensuses] = useState<Map<string, MountCensus>>(new Map());
+    /* What the mount's files occupy, once each, for the card that shows it. */
+    const [mountFiles, setMountFiles] = useState<Map<string, Bytes>>(new Map());
+    /* Set when a mount's walk failed, so "measuring" does not keep saying so
+       about something that is never coming. */
+    const [censusFailed, setCensusFailed] = useState(false);
+
     const current = trail.current();
     const currentPath = current?.path ?? null;
+    const currentMount = current?.mount ?? null;
 
     /* load filesystem list on mount and whenever the cache is replaced */
     useEffect(() => {
@@ -84,7 +98,7 @@ export const Application = () => {
         return () => { active = false };
     }, [session]);
 
-    /* load directory usage when the current path changes. The `active` flag
+    /* Load directory usage when the current path changes. The `active` flag
        discards late responses so a slow scan of a previous directory cannot
        overwrite the directory the user is now looking at. */
     useEffect(() => {
@@ -116,8 +130,79 @@ export const Application = () => {
         return () => { active = false };
     }, [currentPath, session]);
 
-    /* Rescan drops every cached scan and reloads the visible level. */
-    const refresh = () => setSession(newSession());
+    /* Walk the opened mount for its hard links, so the breakdown can say which
+       part of each folder is a second name for bytes already on the disk.
+
+       Its dependencies are its inputs -- which mount, and which session -- and
+       never the map it stores into. An effect that depends on the state it sets
+       re-triggers itself: the store is a new object, the object is a
+       dependency, so the effect runs again and stores again, and the page
+       renders until the browser gives up on it. */
+    useEffect(() => {
+        if (!currentMount)
+            return;
+        let active = true;
+        setCensusFailed(false);
+        session.getCensus(currentMount)
+                .then(census => {
+                    if (!active)
+                        return;
+                    setCensuses(prev => withEntry(prev, currentMount, census));
+                })
+                .catch(() => {
+                    if (!active)
+                        return;
+                    setCensusFailed(true);
+                });
+        return () => { active = false };
+    }, [currentMount, session]);
+
+    /* While the picker is showing, walk every mount in turn so each card can
+       say how much of its usage is a hard-link copy. Entering a mount later
+       reads the same walk, so this is the only place the cost is paid.
+
+       For the same reason this does not watch the maps it fills: what a mount
+       still needs is asked of the session, whose cache already knows, and a
+       store that changes nothing changes nothing (see `withEntry`). */
+    useEffect(() => {
+        if (currentPath || fileSystems.length === 0)
+            return;
+        let active = true;
+        (async () => {
+            for (const fs of fileSystems) {
+                if (!active)
+                    return;
+                try {
+                    /* The census and the mount's own total: the two numbers a
+                       card needs to say what its files occupy once each and
+                       what the copies add. Both are cached per session, and
+                       the level a card leads to is scanned from them. */
+                    const [census, usage] = await Promise.all([
+                        session.getCensus(fs.mount),
+                        session.getDirectory(fs.mount),
+                    ]);
+                    if (!active)
+                        return;
+                    setCensuses(prev => withEntry(prev, fs.mount, census));
+                    setMountFiles(prev => withEntry(prev, fs.mount, usage.size));
+                } catch {
+                    /* leave this card without its hard-link line: an
+                       unreadable mount is the scan's problem, not the card's */
+                }
+            }
+        })();
+        return () => { active = false };
+    }, [currentPath, fileSystems, session]);
+
+    /* Rescan drops every cached scan and reloads the visible level. What the
+       previous session measured is dropped with it: the censuses are per-session
+       data, and leaving the old ones in would split this session's fresh `du`
+       numbers with last session's hard-link picture until the new walk lands. */
+    const refresh = () => {
+        setCensuses(new Map());
+        setMountFiles(new Map());
+        setSession(newSession());
+    };
 
     const enterFs = (mount: string) => setTrail(Trail.open(mount));
     const enterChild = (name: string) => setTrail(trail.openChild(name));
@@ -128,16 +213,54 @@ export const Application = () => {
     const entries: UsageEntry[] = dirUsage?.entries ?? [];
     const totalSize: Bytes = dirUsage?.size ?? bytes(0);
 
+    /* The hard-link picture of the directory being shown, and of each of its
+       entries: what is reachable only from here, and what is a second name for
+       bytes that also live elsewhere in the mount. */
+    const census = currentMount ? censuses.get(currentMount) ?? null : null;
+    /* Measuring means this mount's walk is on its way: inside a mount, without
+       its census, and not after a failure. Reading it off the map rather than
+       carrying it in state is what lets the effect that fills the map leave it
+       alone afterwards. */
+    const censusPending = currentMount !== null && !census && !censusFailed;
+    const entryList = entries;
+    const entrySharing: Map<string, Sharing> | null = React.useMemo(() => {
+        if (!census || !currentPath)
+            return null;
+        const map = new Map<string, Sharing>();
+        for (const entry of entryList)
+            map.set(entry.name, sharingUnder(census, joinPath(currentPath, entry.name), entry.size));
+        return map;
+    }, [census, currentPath, entryList]);
+    const directorySharing: Sharing | null = React.useMemo(() => {
+        if (!census || !currentPath || !dirUsage)
+            return null;
+        return sharingUnder(census, currentPath, totalSize);
+    }, [census, currentPath, dirUsage, totalSize]);
+
+    /* The mount this directory belongs to, when the directory is one: `df` has
+       an opinion about a whole filesystem and none about a directory in it. */
+    const currentFileSystem: FileSystem | null = currentPath && currentPath === currentMount
+        ? fileSystems.find(fs => fs.mount === currentMount) ?? null
+        : null;
+
     /* Both charts draw the same prepared list, so one level is one set of
        colours and one aggregate whichever view you are in. */
-    const chartData = capped(levelData(entries), DONUT_SLICES, _("Other"));
+    const chartData = capped(levelData(entries, entrySharing ?? undefined), DONUT_SLICES, _("Other"));
 
     const itemCount = cockpit.ngettext("$0 item", "$0 items", entries.length).replace('$0', String(entries.length));
     const percent = (size: number) => (totalSize > 0 ? `${(size / totalSize * 100).toFixed(1)}%` : '0%');
+    /* The shared part of an entry's size: zero while the census is missing, so
+       a folder whose links have not been measured reads as none rather than as
+       something the module does not know. */
+    const sharedFor = (name: string): Bytes => entrySharing?.get(name)?.sharedWithElsewhere ?? bytes(0);
 
     return (
         <Page>
-            <Card>
+            {/* the page's frame fills the sheet (see .ct-page-fill in index.html)
+                and the card fills the frame, so the room left over is the
+                chart's: the charts lay themselves out in the box their area is
+                measured at, and the table keeps its own height */}
+            <Card isFullHeight className="storage-card">
                 <CardTitle>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                         <span data-testid="storage-title">{current ? current.path : _("Disk Usage")}</span>
@@ -163,7 +286,7 @@ export const Application = () => {
                         </div>
                     </div>
                 </CardTitle>
-                <CardBody>
+                <CardBody className="storage-body">
                     {fsLoading && <Spinner size="lg" />}
 
                     {!fsLoading && !current && (
@@ -175,6 +298,8 @@ export const Application = () => {
                                 fileSystems={fileSystems}
                                 onSelect={enterFs}
                                 error={fsError}
+                                censuses={censuses}
+                                mountFiles={mountFiles}
                             />
                         </>
                     )}
@@ -194,6 +319,24 @@ export const Application = () => {
                                     onChange={(_, checked) => setViewMode(checked ? 'donut' : 'treemap')}
                                 />
                             </div>
+
+                            {/* What the folder costs on disk, and which part of
+                                that is a second name for bytes already counted.
+                                It reads the same census the charts hatch, and
+                                waits for the size it reports on: a strip drawn
+                                beside a scan still in flight would read "0 B of
+                                files" as the folder's size, which is a claim
+                                about the folder rather than about the wait. */}
+                            {dirUsage && (
+                                <Breakdown
+                                    fileSystem={currentFileSystem}
+                                    size={totalSize}
+                                    sharing={directorySharing}
+                                    duplicated={census && currentFileSystem ? duplicatedBytes(census) : undefined}
+                                    pending={censusPending}
+                                    incomplete={Boolean(census && !census.complete)}
+                                />
+                            )}
 
                             {dirLoading && <Spinner size="lg" />}
 
@@ -229,54 +372,62 @@ export const Application = () => {
                             )}
 
                             {!dirLoading && entries.length > 0 && (
-                                <table className="pf-v6-c-table pf-m-compact" data-testid="usage-table">
-                                    <caption className="pf-v6-c-table__caption pf-v6-screen-reader">
-                                        {_("Directory contents")}
-                                    </caption>
-                                    <thead className="pf-v6-c-table__thead">
-                                        <tr className="pf-v6-c-table__tr">
-                                            <th className="pf-v6-c-table__th" scope="col">{_("Name")}</th>
-                                            <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("Size")}</th>
-                                            <th className="pf-v6-c-table__th pf-m-width-20" scope="col">{_("% of total")}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="pf-v6-c-table__tbody">
-                                        {entries.slice(0, TABLE_ROWS).map(e => (
-                                            <tr className="pf-v6-c-table__tr" key={e.name}>
-                                                <td className="pf-v6-c-table__td">
-                                                    {e.isDir
-                                                        ? (
-                                                            <Button
-                                                                variant="link"
-                                                                isInline
-                                                                icon={<FolderIcon />}
-                                                                onClick={() => enterChild(e.name)}
-                                                            >
-                                                                {e.name}
-                                                            </Button>
-                                                        )
-                                                        : (
-                                                            <span><FileIcon /> {e.name}</span>
-                                                        )}
-                                                </td>
-                                                <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
-                                                    {formatSize(e.size)}
-                                                </td>
-                                                <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
-                                                    {percent(e.size)}
-                                                </td>
+                                <div className="storage-table">
+                                    <table className="pf-v6-c-table pf-m-compact" data-testid="usage-table">
+                                        <caption className="pf-v6-c-table__caption pf-v6-screen-reader">
+                                            {_("Directory contents")}
+                                        </caption>
+                                        <thead className="pf-v6-c-table__thead">
+                                            <tr className="pf-v6-c-table__tr">
+                                                <th className="pf-v6-c-table__th" scope="col">{_("Name")}</th>
+                                                <th className="pf-v6-c-table__th pf-m-width-20" scope="col" style={{ textAlign: 'right' }}>{_("Size")}</th>
+                                                <th className="pf-v6-c-table__th pf-m-width-20" scope="col" style={{ textAlign: 'right' }} title={_("Part of this folder's size that also lives under another name in the same mount")}>
+                                                    {_("Shared")}
+                                                </th>
+                                                <th className="pf-v6-c-table__th pf-m-width-20" scope="col" style={{ textAlign: 'right' }}>{_("% of total")}</th>
                                             </tr>
-                                        ))}
-                                        {entries.length > TABLE_ROWS && (
-                                            <tr className="pf-v6-c-table__tr" data-testid="table-more">
-                                                <td className="pf-v6-c-table__td" colSpan={3}>
-                                                    {cockpit.ngettext("…and $0 more item", "…and $0 more items", entries.length - TABLE_ROWS)
-                                                            .replace('$0', String(entries.length - TABLE_ROWS))}
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody className="pf-v6-c-table__tbody">
+                                            {entries.slice(0, TABLE_ROWS).map(e => (
+                                                <tr className="pf-v6-c-table__tr" key={e.name}>
+                                                    <td className="pf-v6-c-table__td">
+                                                        {e.isDir
+                                                            ? (
+                                                                <Button
+                                                                    variant="link"
+                                                                    isInline
+                                                                    icon={<FolderIcon />}
+                                                                    onClick={() => enterChild(e.name)}
+                                                                >
+                                                                    {e.name}
+                                                                </Button>
+                                                            )
+                                                            : (
+                                                                <span><FileIcon /> {e.name}</span>
+                                                            )}
+                                                    </td>
+                                                    <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
+                                                        {formatSize(e.size)}
+                                                    </td>
+                                                    <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }} data-testid="shared-cell">
+                                                        {sharedFor(e.name) > 0 ? formatSize(sharedFor(e.name)) : '—'}
+                                                    </td>
+                                                    <td className="pf-v6-c-table__td" style={{ textAlign: 'right' }}>
+                                                        {percent(e.size)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {entries.length > TABLE_ROWS && (
+                                                <tr className="pf-v6-c-table__tr" data-testid="table-more">
+                                                    <td className="pf-v6-c-table__td" colSpan={4}>
+                                                        {cockpit.ngettext("…and $0 more item", "…and $0 more items", entries.length - TABLE_ROWS)
+                                                                .replace('$0', String(entries.length - TABLE_ROWS))}
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                         </>
                     )}

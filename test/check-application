@@ -30,6 +30,15 @@ class TestApplication(testlib.MachineCase):
         b.wait_text("[data-testid=storage-title]", "/" + name)
         b.wait_visible("[data-testid=treemap]")
 
+    def openEntry(self, name):
+        """Descend into a child of the level on screen, named by its button."""
+        b = self.browser
+
+        b.call_js_func(
+            'name => [...document.querySelectorAll("[data-testid=usage-table] button")]'
+            '.find(button => button.textContent.trim() === name).click()', name)
+        b.wait_visible("[data-testid=treemap]")
+
     def testBasic(self):
         b = self.browser
 
@@ -67,6 +76,146 @@ class TestApplication(testlib.MachineCase):
         b.click("#display-language-modal button.pf-m-primary")
         b.wait_visible("#content")
         b.wait_text("#host-apps a[href='/storage']", "Speicher")
+
+    def testTheFrameFillsTheSheet(self):
+        b = self.browser
+
+        # Cockpit's contract for a page that fills the shell is .ct-page-fill on
+        # the page's root element (see pkg/lib/page.scss): without it the page's
+        # frame stops at whatever height its content happens to be, which left
+        # this module a small box with the rest of the sheet empty. Every other
+        # Cockpit page fills it.
+        self.login_and_go("/storage")
+        b.wait_visible("[data-testid=storage-title]")
+        b.wait_visible("[data-testid=treemap]")
+
+        def height(selector):
+            return b.call_js_func(
+                "sel => Math.round(document.querySelector(sel).getBoundingClientRect().height)",
+                selector)
+
+        sheet = b.call_js_func("() => innerHeight")
+        frame = height(".pf-v6-c-page__main-container")
+        card = height(".pf-v6-c-card")
+        chart = height(".treemap")
+
+        # the sheet's own inset is 24px, so a filling frame stops one page inset
+        # from the bottom rather than wherever the content happened to end
+        self.assertGreater(frame, sheet - 32, "the frame reaches the bottom of the sheet")
+        self.assertGreater(card, frame - 16, "the card fills the frame")
+        self.assertGreater(chart, 200, "the chart grows into the room the card has")
+
+        # ...and the same across the page: PatternFly 6 lays a page out with a
+        # column for a page sidebar from 75rem up ("header header" / "sidebar
+        # main", grid-template-columns: <sidebar width> 1fr) whether or not the
+        # page renders one, which left this module 18.125rem of empty sheet
+        # beside a frame that otherwise filled. The frame spans the sheet
+        # because this module has no page sidebar to reserve a column for.
+        width = b.call_js_func(
+            "sel => Math.round(document.querySelector(sel).getBoundingClientRect().width)",
+            ".pf-v6-c-page__main-container")
+        sheetWidth = b.call_js_func("() => innerWidth")
+        self.assertGreater(width, sheetWidth - 96,
+                           "the frame spans the sheet from side to side")
+        self.assertLess(width - b.call_js_func(
+            "sel => Math.round(document.querySelector(sel).getBoundingClientRect().width)",
+            ".pf-v6-c-card"), 32,
+                        "the card spans the frame from side to side")
+        # and nothing beside the frame is scrolled to or clipped
+        self.assertEqual(b.call_js_func("() => document.documentElement.scrollWidth"),
+                         b.call_js_func("() => innerWidth"),
+                         "the page does not scroll sideways")
+
+        # and the treemap is laid out in the pixels it is drawn in rather than
+        # into a fixed box that is scaled to fit
+        viewBox = b.call_js_func(
+            "sel => document.querySelector(sel).getAttribute('viewBox')",
+            '[data-testid="treemap"]')
+        box = b.call_js_func(
+            "sel => { const r = document.querySelector(sel).getBoundingClientRect();"
+            " return [Math.round(r.width), Math.round(r.height)]; }",
+            '[data-testid="treemap"]')
+        self.assertEqual(viewBox, f"0 0 {box[0]} {box[1]}",
+                         "the treemap's layout box is the box it is drawn in")
+
+        # the ring is a circle, so it takes the shorter side of the box it is
+        # given, whatever that box happens to be
+        b.click("#view-mode-toggle")
+        b.wait_visible("[data-testid=donut]")
+        ringBox = b.call_js_func(
+            "sel => { const r = document.querySelector(sel).getBoundingClientRect();"
+            " return [Math.round(r.width), Math.round(r.height)]; }",
+            '[data-testid="donut"]')
+        ringViewBox = b.call_js_func(
+            "sel => document.querySelector(sel).getAttribute('viewBox')",
+            '[data-testid="donut"]')
+        self.assertEqual(ringBox[0], ringBox[1], "the ring is drawn as a circle")
+        self.assertEqual(ringViewBox, f"0 0 {ringBox[0]} {ringBox[1]}")
+
+    def testHardLinkedFilesCostTheDiskOnce(self):
+        b = self.browser
+
+        # Built here rather than borrowed from the VM: a hard link needs a real
+        # inode reached from two names, and no image ships a mount that has one
+        # and is also small enough to scan quickly. Nondestructive: mktemp -d,
+        # forty MiB, removed on the way out.
+        directory = self.machine.execute("mktemp -d /tmp/cockpit-storage-test.XXXXXX").strip()
+        fixture = directory.rsplit("/", 1)[1]
+        self.addCleanup(self.machine.execute, "rm -rf " + directory)
+        self.machine.execute(f"dd if=/dev/zero of={directory}/one.bin bs=1M count=20 status=none")
+        self.machine.execute(f"mkdir {directory}/copy {directory}/solo")
+        # the same inode under a second name, which is the whole point: the two
+        # files occupy 20 MiB on disk between them
+        self.machine.execute(f"ln {directory}/one.bin {directory}/copy/two.bin")
+        # ... and a file nothing else names, so a level with no sharing at all
+        # is on the same page as one with it
+        self.machine.execute(f"dd if=/dev/zero of={directory}/solo/unique.bin bs=1M count=5 status=none")
+
+        self.login_and_go("/storage")
+
+        # the picker walks the mounts in the background, so its hard-link line
+        # appears once this one has been walked rather than on first paint
+        b.wait_visible("[data-testid=picker-shared]")
+        self.assertIn("hardlinked copies", b.text("[data-testid=picker-shared]"))
+
+        # the level holding both names: du counts the inode once per walk, so
+        # the file and the folder holding its second name both report it in full
+        self.drillInto("tmp")
+        self.openEntry(fixture)
+        b.wait_text("[data-testid=storage-title]", directory)
+
+        row_text = ('name => { const row = [...document.querySelectorAll'
+                    '("[data-testid=usage-table] tbody tr")].find(r =>'
+                    ' r.children[0].textContent.trim().startsWith(name));'
+                    ' return [...row.children].map(c => c.textContent.trim()); }')
+        one = b.call_js_func(row_text, "one.bin")
+        self.assertNotEqual(one[1], "0 B", "the file has a size")
+
+        # ... and the Shared column says how much of the folder's size is the
+        # other name for those same bytes, which is what stops the two entries
+        # from looking independent
+        shared = b.call_js_func(row_text, "copy")
+        self.assertEqual(shared[2], one[1],
+                        "the folder holding the second name reports it as shared")
+
+        # the treemap hatches the shared fraction of a cell rather than leaving
+        # the cell the same size as a folder that owns everything in it
+        b.wait_js_cond('document.querySelector("[data-testid=treemap-cell]'
+                       '[data-shared]") !== null')
+
+        # inside the folder with the second name, the other one is outside it:
+        # that is the level whose split says how much would be freed by deleting
+        self.openEntry("copy")
+        b.wait_visible("[data-testid=breakdown-extra]")
+        b.wait_js_cond('document.querySelector("[data-testid=breakdown-extra]")'
+                       '.dataset.counterparts === "tmp/' + fixture + '/one.bin"')
+
+        # and a folder with no second name for its bytes says so, rather than
+        # showing a split of nothing
+        b.click("button:contains(Back)")
+        self.openEntry("solo")
+        b.wait_text("[data-testid=storage-title]", directory + "/solo")
+        b.wait_visible("[data-testid=breakdown-clean]")
 
     def testDirectoryWithMoreChildrenThanTheCap(self):
         b = self.browser

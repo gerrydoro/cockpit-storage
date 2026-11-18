@@ -38,6 +38,12 @@ Commands:
 - File imports use the output extension, not the real one: `src/index.tsx`
   imports `./app.jsx` and `app.tsx` imports `./gatherer.js`. `build.js` declares
   entry `./src/index.js`, which esbuild resolves to `index.tsx`. Keep this.
+- **An effect must not depend on the state it fills.** The census effect stored
+  into `censuses` and listed `censuses` as a dependency: every store was a new
+  Map, so the effect re-triggered itself forever and the page rendered until the
+  browser gave up. Its dependencies are its inputs (mount, session) only, and
+  `withEntry` in `gatherer.ts` is what makes a store of the same value a no-op —
+  pinned by tests in `test/test-gatherer.js`.
 
 ## Source layout
 
@@ -55,15 +61,36 @@ Commands:
 - `src/format.ts` — `formatSize`; `src/{Treemap,RingChart,Breadcrumbs,FsPicker}.tsx` — UI
 - `src/Breadcrumbs.tsx` — takes the **Trail** and renders it; crumb labelling is
   the trail's job, not the page's.
+- `src/index.html` — the page document. `#app` carries `.ct-page-fill`, which is
+  Cockpit's contract for "this page fills the shell": `pkg/lib/page.scss` gives
+  the page and its main container the sheet's full height, so the module's frame
+  reaches the edges of the page like every other Cockpit page. Without it the
+  frame stops at whatever height its content happens to be.
+- The module renders no PatternFly **page sidebar**, so `src/app.scss` also
+  resets PF's page grid: from 75rem up, PF lays a page out as
+  `"header header" "sidebar main"` with `grid-template-columns: <sidebar width>
+  1fr`, which reserves 18.125rem of empty sheet for a sidebar that is never
+  drawn. The reset is the mirror image of `.ct-page-fill` on the other axis.
 - `src/chart.ts` — the chart vocabulary: `ChartDatum`, the palette, the
   colour-slot rule, and turning a level's entries into chart data. Both charts
   read from it, so a level keeps its colours and its slice cap across views.
   `navigable` is what a chart tests to decide clickability, not `isDir`.
+- `src/sharing.ts` — what a mount's hard links mean: `duplicatedBytes` (what
+  `du -l` would add), `sharingUnder` (a directory's exclusive part against the
+  part that also lives under another name) and the counterpart naming rule.
+  Pure arithmetic over `MountCensus` from `gatherer.ts`.
+- `src/Breakdown.tsx` — the strip that reads those numbers off: the mount's
+  allocated-vs-files head, the split bar, and the legend. Presentation only:
+  every number in it comes from `sharing.ts`.
 - `src/layout.ts` — the charts' geometry, all of it React-free and
   Node-tested: `place` lays a treemap and hands each datum back with its
   rectangle, so the caller never repeats the layout's filter and sort or joins
   rectangles to data by position (`squarify` is the geometry underneath it),
   and `arcPath`/`isFullCircle` are the ring chart's arcs.
+- The charts draw into the box the page gives them, measured by
+  `src/useElementSize.ts` — never into a fixed coordinate system that is then
+  scaled to fit, which would make a treemap's shape depend on the window's.
+  `src/app.scss` sizes that box in CSS and nothing else about a chart.
 - `src/gatherer.ts` gathers through a `CommandRunner`, never through
   `cockpit.*` directly: `cockpitRunner()` is the only adapter that touches the
   bridge, and `test/mock-cockpit.js` provides `inMemoryRunner` so the whole

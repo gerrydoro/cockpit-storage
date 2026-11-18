@@ -40,6 +40,9 @@ const cockpit = {
  * A `du` or `find` value of null means that command failed (ok: false), which
  * is how an unreadable-directory scan is simulated. An unknown directory
  * reports empty output for both commands.
+ *
+ * `census` holds the canned output of the hard-link walk `censusMount` runs in
+ * that directory, which the level scan's own `find` must not be confused with.
  */
 export function inMemoryRunner({ mounts = '', df = '', dirs = {} } = {}) {
     const commandFor = (dir, name) => {
@@ -58,7 +61,11 @@ export function inMemoryRunner({ mounts = '', df = '', dirs = {} } = {}) {
             case 'du':
                 return commandFor(dir, 'du');
             case 'find':
-                return commandFor(dir, 'find');
+                /* the census asks for hard links; the level scan asks for
+                   subdirectory names. Both run `find` in the same directory */
+                return args.includes('-links')
+                    ? commandFor(dir, 'census')
+                    : commandFor(dir, 'find');
             default:
                 throw new Error(`inMemoryRunner: no canned output for ${args.join(' ')}`);
             }
