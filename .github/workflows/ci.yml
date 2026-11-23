@@ -2,9 +2,22 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Also trigger on push to cockpit-ci-container-* branches so the weekly
+  # tasks-container-update workflow's push reliably runs CI. The PR trigger
+  # alone can be skipped (action_required, zero jobs) due to a race between
+  # the bot's push and PR creation.
+  push:
+    branches:
+      - 'cockpit-ci-container-*'
 
 permissions:
   contents: read
+
+concurrency:
+  # Cancel in-progress runs for the same branch so push+PR triggers don't
+  # run duplicate CI.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   codecheck:
