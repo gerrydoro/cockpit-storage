@@ -1,7 +1,8 @@
 name: tasks-container-update
 on:
   schedule:
-    - cron: "0 2 * * 1"
+    # At 02:00 on day 1 of every month
+    - cron: "0 2 1 * *"
   # can be run manually on https://github.com/gerrydoro/cockpit-storage/actions
   workflow_dispatch:
 jobs:
