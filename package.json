@@ -18,7 +18,7 @@
     "stylelint:fix": "stylelint --fix src/*.{css,scss}"
   },
   "devDependencies": {
-    "@types/react": "19.3.0",
+    "@types/react": "19.3.1",
     "@types/react-dom": "19.3.0",
     "@typescript-eslint/eslint-plugin": "8.74.0",
     "esbuild-wasm": "0.28.2",
